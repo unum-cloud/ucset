@@ -468,12 +468,12 @@ class consistent_set_gt {
     [[nodiscard]] status_t upsert(element_t&& element) noexcept {
         generation_t generation = new_generation();
         return invoke_safely([&] {
-            auto range_start = entries_.lower_bound(element);
             auto entry = entry_t {std::move(element)};
             entry.generation = generation;
             entry.deleted = false;
             entry.visible = true;
             auto range_end = entries_.insert(std::move(entry)).first;
+            auto range_start = entries_.lower_bound(range_end->element);
             compact_visible_entries(range_start, range_end);
         });
     }

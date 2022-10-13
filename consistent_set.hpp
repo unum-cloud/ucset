@@ -47,12 +47,12 @@ template <typename callable_at>
 consistent_set_status_t invoke_safely(callable_at&& callable) noexcept {
     if constexpr (noexcept(callable())) {
         callable();
-        return {};
+        return {success_k};
     }
     else {
         try {
             callable();
-            return {};
+            return {success_k};
         }
         catch (std::bad_alloc const&) {
             return {consistent_set_errc_t::out_of_memory_heap_k};
@@ -300,7 +300,7 @@ class consistent_set_gt {
                 if (!status)
                     return status;
             } while (!faced_deleted_entry);
-            return {};
+            return {success_k};
         }
 
         [[nodiscard]] status_t upsert(element_t&& element) noexcept {
@@ -350,13 +350,13 @@ class consistent_set_gt {
             // No new memory allocations or failures are possible after that.
             // It is all safe.
             for (auto const& entry : changes_)
-                watches_.insert_or_assign(entry.element, entry.generation);
+                watches_.insert_or_assign(entry.element, watch_t {generation_, entry.deleted});
 
             // Than just merge our current nodes.
             // The visibility will be updated later in the `commit`.
             set_.entries_.merge(changes_);
             stage_ = stage_t::staged_k;
-            return {};
+            return {success_k};
         }
 
         /**
@@ -378,7 +378,7 @@ class consistent_set_gt {
             watches_.clear();
             changes_.clear();
             stage_ = stage_t::created_k;
-            return {};
+            return {success_k};
         }
 
         /**
@@ -402,7 +402,7 @@ class consistent_set_gt {
 
             watches_.clear();
             stage_ = stage_t::created_k;
-            return {};
+            return {success_k};
         }
 
         [[nodiscard]] status_t commit() noexcept {
@@ -417,7 +417,7 @@ class consistent_set_gt {
                 set_.compact_outdated_entries(range.first, range.second, watch.generation);
             }
 
-            return {};
+            return {success_k};
         }
     };
 
@@ -495,7 +495,7 @@ class consistent_set_gt {
             auto range_start = entries_.lower_bound(range_end->element);
             compact_visible_entries(range_start, range_end);
         }
-        return {};
+        return {success_k};
     }
 
     template <typename elements_begin_at, typename elements_end_at = elements_begin_at>
@@ -562,7 +562,7 @@ class consistent_set_gt {
                 if (auto status = invoke_safely([&] { callback(range.first->element); }); !status)
                     return status;
 
-        return {};
+        return {success_k};
     }
 
     /**
@@ -580,7 +580,7 @@ class consistent_set_gt {
                     !status)
                     return status;
 
-        return {};
+        return {success_k};
     }
 
     [[nodiscard]] status_t erase(identifier_t id) noexcept {
@@ -601,7 +601,7 @@ class consistent_set_gt {
     [[nodiscard]] status_t clear() noexcept {
         entries_.clear();
         generation_ = 0;
-        return {};
+        return {success_k};
     }
 };
 

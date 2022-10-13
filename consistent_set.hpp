@@ -208,92 +208,6 @@ class consistent_set_gt {
             return *this;
         }
 
-        [[nodiscard]] status_t watch(identifier_t const& id) noexcept {
-            return store_.find(
-                id,
-                [&](entry_t const& entry) {
-                    watches_.insert_or_assign(entry.element, watch_t {entry.generation, entry.deleted});
-                },
-                [&] { watches_.insert_or_assign(id, missing_watch()); });
-        }
-
-        [[nodiscard]] status_t watch(entry_t const& entry) noexcept {
-            return invoke_safely([&] {
-                watches_.insert_or_assign(entry.element, watch_t {entry.generation, entry.deleted});
-            });
-        }
-
-        template <typename comparable_at, typename callback_found_at, typename callback_missing_at = no_op_t>
-        [[nodiscard]] status_t find(comparable_at&& comparable,
-                                    callback_found_at&& callback_found,
-                                    callback_missing_at&& callback_missing = {}) noexcept {
-            if (auto iterator = changes_.find(std::forward<comparable_at>(comparable)); iterator != changes_.end())
-                return !iterator->deleted ? invoke_safely([&callback_found, &iterator] { callback_found(*iterator); })
-                                          : invoke_safely(callback_missing);
-            else
-                return store_.find(std::forward<comparable_at>(comparable),
-                                   std::forward<callback_found_at>(callback_found),
-                                   std::forward<callback_missing_at>(callback_missing));
-        }
-
-        template <typename comparable_at, typename callback_found_at, typename callback_missing_at = no_op_t>
-        [[nodiscard]] status_t find_next(comparable_at&& comparable,
-                                         callback_found_at&& callback_found,
-                                         callback_missing_at&& callback_missing = {}) noexcept {
-
-            auto external_previous_id = identifier_t(comparable);
-            auto internal_iterator = changes_.upper_bound(std::forward<comparable_at>(comparable));
-            while (internal_iterator != changes_.end() && internal_iterator->deleted)
-                ++internal_iterator;
-
-            // Once picking the next smallest element from the global store,
-            // we might face an entry, that was already deleted from here,
-            // so this might become a multi-step process.
-            auto faced_deleted_entry = false;
-            do {
-                auto status = store_.find_next(
-                    external_previous_id,
-                    [&](element_t const& external_element) {
-                        // The simplest case is when we have an external object.
-                        if (internal_iterator == changes_.end())
-                            return callback_found(external_element);
-
-                        entry_less_t less;
-                        element_t const& internal_element = internal_iterator->element;
-                        auto internal_is_smaller = less(internal_element, external_element);
-                        auto external_is_smaller = less(external_element, internal_element);
-                        auto same = !internal_is_smaller && //
-                                    !external_is_smaller;
-
-                        if (internal_is_smaller || same)
-                            return callback_found(internal_element);
-
-                        // Check if this entry was deleted and we should try again.
-                        auto external_id = identifier_t(external_element);
-                        auto external_element_internal_state = changes_.find(external_element);
-                        if (external_element_internal_state != changes_.end() &&
-                            external_element_internal_state->deleted) {
-                            faced_deleted_entry = true;
-                            external_previous_id = external_id;
-                            return;
-                        }
-                        else
-                            return callback_found(external_element);
-                    },
-                    [&] {
-                        if (internal_iterator == changes_.end())
-                            return callback_missing();
-                        else {
-                            element_t const& internal_element = internal_iterator->element;
-                            return callback_found(internal_element);
-                        }
-                    });
-                if (!status)
-                    return status;
-            } while (!faced_deleted_entry);
-            return {success_k};
-        }
-
         [[nodiscard]] status_t upsert(element_t&& element) noexcept {
             return invoke_safely([&] {
                 auto iterator = changes_.lower_bound(element);
@@ -316,6 +230,99 @@ class consistent_set_gt {
                 iterator->deleted = true;
                 iterator->visible = false;
             });
+        }
+
+        [[nodiscard]] status_t watch(identifier_t const& id) noexcept {
+            return store_.find(
+                id,
+                [&](entry_t const& entry) {
+                    watches_.insert_or_assign(entry.element, watch_t {entry.generation, entry.deleted});
+                },
+                [&] { watches_.insert_or_assign(id, missing_watch()); });
+        }
+
+        [[nodiscard]] status_t watch(entry_t const& entry) noexcept {
+            return invoke_safely([&] {
+                watches_.insert_or_assign(entry.element, watch_t {entry.generation, entry.deleted});
+            });
+        }
+
+        template <typename comparable_at = identifier_t,
+                  typename callback_found_at = no_op_t,
+                  typename callback_missing_at = no_op_t>
+        [[nodiscard]] status_t find(comparable_at&& comparable,
+                                    callback_found_at&& callback_found,
+                                    callback_missing_at&& callback_missing = {}) const noexcept {
+            if (auto iterator = changes_.find(std::forward<comparable_at>(comparable)); iterator != changes_.end())
+                return !iterator->deleted ? invoke_safely([&callback_found, &iterator] { callback_found(*iterator); })
+                                          : invoke_safely(callback_missing);
+            else
+                return store_.find(std::forward<comparable_at>(comparable),
+                                   std::forward<callback_found_at>(callback_found),
+                                   std::forward<callback_missing_at>(callback_missing));
+        }
+
+        template <typename comparable_at = identifier_t,
+                  typename callback_found_at = no_op_t,
+                  typename callback_missing_at = no_op_t>
+        [[nodiscard]] status_t find_next(comparable_at&& comparable,
+                                         callback_found_at&& callback_found,
+                                         callback_missing_at&& callback_missing = {}) const noexcept {
+
+            auto external_previous_id = identifier_t(comparable);
+            auto internal_iterator = changes_.upper_bound(std::forward<comparable_at>(comparable));
+            while (internal_iterator != changes_.end() && internal_iterator->deleted)
+                ++internal_iterator;
+
+            // Once picking the next smallest element from the global store,
+            // we might face an entry, that was already deleted from here,
+            // so this might become a multi-step process.
+            auto faced_deleted_entry = false;
+            auto callback_external_found = [&](element_t const& external_element) {
+                // The simplest case is when we have an external object.
+                if (internal_iterator == changes_.end())
+                    return callback_found(external_element);
+
+                entry_less_t less;
+                element_t const& internal_element = internal_iterator->element;
+                auto internal_is_smaller = less(internal_element, external_element);
+                auto external_is_smaller = less(external_element, internal_element);
+                auto same = !internal_is_smaller && //
+                            !external_is_smaller;
+
+                if (internal_is_smaller || same)
+                    return callback_found(internal_element);
+
+                // Check if this entry was deleted and we should try again.
+                auto external_id = identifier_t(external_element);
+                auto external_element_internal_state = changes_.find(external_element);
+                if (external_element_internal_state != changes_.end() && external_element_internal_state->deleted) {
+                    faced_deleted_entry = true;
+                    external_previous_id = external_id;
+                    return;
+                }
+                else
+                    return callback_found(external_element);
+            };
+            auto callback_external_missing = [&] {
+                if (internal_iterator == changes_.end())
+                    return callback_missing();
+                else {
+                    element_t const& internal_element = internal_iterator->element;
+                    return callback_found(internal_element);
+                }
+            };
+
+            // Iterate until we find the a non-deleted external value
+            do {
+                auto status = store_.find_next( //
+                    external_previous_id,
+                    callback_external_found,
+                    callback_external_missing);
+                if (!status)
+                    return status;
+            } while (!faced_deleted_entry);
+            return {success_k};
         }
 
         [[nodiscard]] status_t stage() noexcept {
@@ -347,9 +354,7 @@ class consistent_set_gt {
 
             // Than just merge our current nodes.
             // The visibility will be updated later in the `commit`.
-            status = store_.upsert(changes_);
-            if (!status)
-                return status;
+            store_.entries_.merge(changes_);
             stage_ = stage_t::staged_k;
             return {success_k};
         }
@@ -457,17 +462,14 @@ class consistent_set_gt {
 
     [[nodiscard]] static std::optional<consistent_set_gt> make() noexcept {
         std::optional<consistent_set_gt> result;
-        invoke_safely([&] { result = consistent_set_gt {}; });
+        invoke_safely([&] { result.emplace(consistent_set_gt {}); });
         return result;
     }
 
     [[nodiscard]] std::optional<transaction_t> transaction() noexcept {
         generation_t generation = new_generation();
         std::optional<transaction_t> result;
-        invoke_safely([&] {
-            result = transaction_t(*this);
-            result->date(generation);
-        });
+        invoke_safely([&] { result.emplace(transaction_t {*this}).date(generation); });
         return result;
     }
 
@@ -526,7 +528,9 @@ class consistent_set_gt {
         return upsert(batch.value());
     }
 
-    template <typename comparable_at, typename callback_found_at, typename callback_missing_at = no_op_t>
+    template <typename comparable_at = identifier_t,
+              typename callback_found_at = no_op_t,
+              typename callback_missing_at = no_op_t>
     [[nodiscard]] status_t find(comparable_at&& comparable,
                                 callback_found_at&& callback_found,
                                 callback_missing_at&& callback_missing = {}) const noexcept {
@@ -546,7 +550,9 @@ class consistent_set_gt {
             return invoke_safely([&] { callback_found(*range.first); });
     }
 
-    template <typename comparable_at, typename callback_found_at, typename callback_missing_at = no_op_t>
+    template <typename comparable_at = identifier_t,
+              typename callback_found_at = no_op_t,
+              typename callback_missing_at = no_op_t>
     [[nodiscard]] status_t find_next(comparable_at&& comparable,
                                      callback_found_at&& callback_found,
                                      callback_missing_at&& callback_missing = {}) const noexcept {
@@ -568,7 +574,7 @@ class consistent_set_gt {
     /**
      * @brief Implements a heterogeneous lookup for all the entries falling into the `equal_range`.
      */
-    template <typename comparable_at, typename callback_at>
+    template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
     [[nodiscard]] status_t find_equals(comparable_at&& comparable, callback_at&& callback) const noexcept {
         auto range = entries_.equal_range(std::forward<comparable_at>(comparable));
         for (; range.first != range.second; ++range.first)
@@ -583,7 +589,7 @@ class consistent_set_gt {
      * @brief Implements a heterogeneous lookup, allowing in-place @b modification of the object,
      * for all the entries falling into the `equal_range`.
      */
-    template <typename comparable_at, typename callback_at>
+    template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
     [[nodiscard]] status_t find_equals(comparable_at&& comparable, callback_at&& callback) noexcept {
         generation_t generation = new_generation();
         auto range = entries_.equal_range(std::forward<comparable_at>(comparable));
@@ -600,7 +606,7 @@ class consistent_set_gt {
     /**
      * @brief Removes one or more objects from the collection, that fall into the `equal_range`.
      */
-    template <typename comparable_at, typename callback_at = no_op_t>
+    template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
     [[nodiscard]] status_t erase_equals(comparable_at&& comparable, callback_at&& callback = {}) noexcept {
         return invoke_safely([&] {
             auto range = entries_.equal_range(std::forward<comparable_at>(comparable));

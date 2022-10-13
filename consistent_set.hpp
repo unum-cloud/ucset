@@ -108,6 +108,13 @@ class consistent_set_gt {
     struct watch_t {
         generation_t generation {0};
         bool deleted {false};
+
+        bool operator==(watch_t const& watch) const noexcept {
+            return watch.deleted == deleted && watch.generation == generation;
+        }
+        bool operator!=(watch_t const& watch) const noexcept {
+            return watch.deleted != deleted || watch.generation != generation;
+        }
     };
 
     struct entry_t {
@@ -198,6 +205,7 @@ class consistent_set_gt {
 
         transaction_t(this_t& set) noexcept(false) : set_(set) {}
         void date(generation_t generation) noexcept { generation_ = generation; }
+        watch_t missing_watch() const noexcept { return watch_t {generation_, true}; }
 
       public:
         transaction_t(transaction_t&&) noexcept = default;
@@ -210,14 +218,12 @@ class consistent_set_gt {
         }
 
         [[nodiscard]] status_t watch(identifier_t id) noexcept {
-            return find(
+            return set_.find(
                 id,
                 [&](entry_t const& entry) {
                     watches_.insert_or_assign(entry.element, watch_t {entry.generation, entry.deleted});
                 },
-                [&] {
-                    watches_.insert_or_assign(id, watch_t {0, true});
-                });
+                [&] { watches_.insert_or_assign(id, missing_watch()); });
         }
 
         [[nodiscard]] status_t watch(entry_t const& entry) noexcept {
@@ -321,12 +327,13 @@ class consistent_set_gt {
 
         [[nodiscard]] status_t stage() noexcept {
             // First, check if we have any collisions.
+            auto entry_missing = missing_watch();
             for (auto const& [id, watch] : watches_) {
                 auto consistency_violated = false;
                 auto status = set_.find(
                     id,
                     [&](entry_t const& entry) noexcept { consistency_violated = entry != watch; },
-                    [&]() noexcept { consistency_violated = !watch.deleted; });
+                    [&]() noexcept { consistency_violated = entry_missing != watch; });
                 if (consistency_violated)
                     return {consistent_set_errc_t::consistency_k};
                 if (!status)

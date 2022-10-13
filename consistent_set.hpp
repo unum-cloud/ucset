@@ -312,6 +312,7 @@ class consistent_set_gt {
                     iterator->element = std::move(element);
                 iterator->generation = generation_;
                 iterator->deleted = false;
+                iterator->visible = false;
             });
         }
 
@@ -322,6 +323,7 @@ class consistent_set_gt {
                     iterator = changes_.emplace_hint(iterator, id);
                 iterator->generation = generation_;
                 iterator->deleted = true;
+                iterator->visible = false;
             });
         }
 
@@ -417,6 +419,7 @@ class consistent_set_gt {
                 set_.compact_outdated_entries(range.first, range.second, watch.generation);
             }
 
+            stage_ = stage_t::created_k;
             return {success_k};
         }
     };

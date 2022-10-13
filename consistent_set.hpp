@@ -1,47 +1,11 @@
 #pragma once
-#include <cstdint>       //
-#include <system_error>  // `ENOMEM`
 #include <functional>    // `std::less`
 #include <set>           // `std::set`
 #include <unordered_map> // `std::unordered_map`
 
+#include "status.hpp"
+
 namespace av {
-
-enum consistent_set_errc_t {
-    success_k = 0,
-    unknown_k = -1,
-
-    consistency_k,
-    transaction_not_recoverable_k = ENOTRECOVERABLE,
-    sequence_number_overflow_k = EOVERFLOW,
-
-    out_of_memory_heap_k = ENOMEM,
-    out_of_memory_arena_k = ENOBUFS,
-    out_of_memory_disk_k = ENOSPC,
-
-    invalid_argument_k = EINVAL,
-    operation_in_progress_k = EINPROGRESS,
-    operation_not_permitted_k = EPERM,
-    operation_not_supported_k = EOPNOTSUPP,
-    operation_would_block_k = EWOULDBLOCK,
-    operation_canceled_k = ECANCELED,
-
-    connection_broken_k = EPIPE,
-    connection_aborted_k = ECONNABORTED,
-    connection_already_in_progress_k = EALREADY,
-    connection_refused_k = ECONNREFUSED,
-    connection_reset_k = ECONNRESET,
-
-};
-
-/**
- * @brief
- *
- */
-struct consistent_set_status_t {
-    consistent_set_errc_t errc = consistent_set_errc_t::success_k;
-    inline operator bool() const noexcept { return errc == consistent_set_errc_t::success_k; }
-};
 
 template <typename callable_at>
 consistent_set_status_t invoke_safely(callable_at&& callable) noexcept {
@@ -73,6 +37,8 @@ consistent_set_status_t invoke_safely(callable_at&& callable) noexcept {
  * For performance, consistency, Multi-Version Concurrency control and others,
  * check out the `set_avl_gt`.
  *
+ * @section Heterogeneous Comparisons
+ *
  * @tparam element_at
  * @tparam comparator_at
  * @tparam allocator_at
@@ -87,6 +53,9 @@ class consistent_set_gt {
     using element_t = element_at;
     using comparator_t = comparator_at;
     using allocator_t = allocator_at;
+    using identifier_t = typename comparator_t::value_type;
+    using generation_t = std::int64_t;
+    using status_t = consistent_set_status_t;
 
     static constexpr bool is_safe_to_move_k =              //
         std::is_nothrow_move_constructible<element_t>() && //
@@ -95,11 +64,9 @@ class consistent_set_gt {
     static_assert(!std::is_reference<element_t>(), "Only value types are supported.");
     static_assert(std::is_nothrow_default_constructible<element_t>(), "We need an empty state.");
     static_assert(is_safe_to_move_k, "To make all the methods `noexcept`, the moves must be safe too.");
+    static_assert(std::is_nothrow_copy_constructible<identifier_t>(), "To WATCH, the ID must be safe to copy.");
 
-    using identifier_t = typename comparator_t::value_type;
-    using generation_t = std::int64_t;
-    using status_t = consistent_set_status_t;
-
+  private:
     struct dated_identifier_t {
         identifier_t id;
         generation_t generation {0};
@@ -211,6 +178,7 @@ class consistent_set_gt {
 
     using this_t = consistent_set_gt;
 
+  public:
     class transaction_t {
 
         friend this_t;
@@ -220,13 +188,13 @@ class consistent_set_gt {
             commited_k,
         };
 
-        this_t& set_;
+        this_t& store_;
         entry_set_t changes_ {};
         watches_map_t watches_ {};
         generation_t generation_ {0};
         stage_t stage_ {stage_t::created_k};
 
-        transaction_t(this_t& set) noexcept(false) : set_(set) {}
+        transaction_t(this_t& set) noexcept(false) : store_(set) {}
         void date(generation_t generation) noexcept { generation_ = generation; }
         watch_t missing_watch() const noexcept { return watch_t {generation_, true}; }
 
@@ -240,8 +208,8 @@ class consistent_set_gt {
             return *this;
         }
 
-        [[nodiscard]] status_t watch(identifier_t id) noexcept {
-            return set_.find(
+        [[nodiscard]] status_t watch(identifier_t const& id) noexcept {
+            return store_.find(
                 id,
                 [&](entry_t const& entry) {
                     watches_.insert_or_assign(entry.element, watch_t {entry.generation, entry.deleted});
@@ -255,35 +223,35 @@ class consistent_set_gt {
             });
         }
 
-        template <typename callback_found_at, typename callback_missing_at>
-        [[nodiscard]] status_t find(identifier_t id,
+        template <typename comparable_at, typename callback_found_at, typename callback_missing_at = no_op_t>
+        [[nodiscard]] status_t find(comparable_at&& comparable,
                                     callback_found_at&& callback_found,
-                                    callback_missing_at&& callback_missing) noexcept {
-            if (auto iterator = changes_.find(id); iterator != changes_.end())
+                                    callback_missing_at&& callback_missing = {}) noexcept {
+            if (auto iterator = changes_.find(std::forward<comparable_at>(comparable)); iterator != changes_.end())
                 return !iterator->deleted ? invoke_safely([&callback_found, &iterator] { callback_found(*iterator); })
                                           : invoke_safely(callback_missing);
             else
-                return set_.find(id,
-                                 std::forward<callback_found_at>(callback_found),
-                                 std::forward<callback_missing_at>(callback_missing));
+                return store_.find(std::forward<comparable_at>(comparable),
+                                   std::forward<callback_found_at>(callback_found),
+                                   std::forward<callback_missing_at>(callback_missing));
         }
 
-        template <typename callback_found_at, typename callback_missing_at>
-        [[nodiscard]] status_t find_next(identifier_t id,
+        template <typename comparable_at, typename callback_found_at, typename callback_missing_at = no_op_t>
+        [[nodiscard]] status_t find_next(comparable_at&& comparable,
                                          callback_found_at&& callback_found,
-                                         callback_missing_at&& callback_missing) noexcept {
+                                         callback_missing_at&& callback_missing = {}) noexcept {
 
-            auto internal_iterator = changes_.upper_bound(id);
+            auto external_previous_id = identifier_t(comparable);
+            auto internal_iterator = changes_.upper_bound(std::forward<comparable_at>(comparable));
             while (internal_iterator != changes_.end() && internal_iterator->deleted)
                 ++internal_iterator;
 
             // Once picking the next smallest element from the global store,
             // we might face an entry, that was already deleted from here,
             // so this might become a multi-step process.
-            auto external_previous_id = id;
             auto faced_deleted_entry = false;
             do {
-                auto status = set_.find_next(
+                auto status = store_.find_next(
                     external_previous_id,
                     [&](element_t const& external_element) {
                         // The simplest case is when we have an external object.
@@ -339,7 +307,7 @@ class consistent_set_gt {
             });
         }
 
-        [[nodiscard]] status_t erase(identifier_t id) noexcept {
+        [[nodiscard]] status_t erase(identifier_t const& id) noexcept {
             return invoke_safely([&] {
                 auto iterator = changes_.lower_bound(id);
                 if (iterator == changes_.end() || !entry_less_t {}.same(iterator->element, id))
@@ -355,7 +323,7 @@ class consistent_set_gt {
             auto entry_missing = missing_watch();
             for (auto const& [id, watch] : watches_) {
                 auto consistency_violated = false;
-                auto status = set_.find(
+                auto status = store_.find(
                     id,
                     [&](entry_t const& entry) noexcept { consistency_violated = entry != watch; },
                     [&]() noexcept { consistency_violated = entry_missing != watch; });
@@ -379,7 +347,9 @@ class consistent_set_gt {
 
             // Than just merge our current nodes.
             // The visibility will be updated later in the `commit`.
-            set_.entries_.merge(changes_);
+            status = store_.upsert(changes_);
+            if (!status)
+                return status;
             stage_ = stage_t::staged_k;
             return {success_k};
         }
@@ -396,9 +366,9 @@ class consistent_set_gt {
             if (stage_ == stage_t::staged_k)
                 for (auto const& [id, watch] : watches_)
                     // Heterogeneous `erase` is only coming in C++23.
-                    if (auto iterator = set_.entries_.find(dated_identifier_t {id, watch.generation});
-                        iterator != set_.entries_.end())
-                        set_.entries_.erase(iterator);
+                    if (auto iterator = store_.entries_.find(dated_identifier_t {id, watch.generation});
+                        iterator != store_.entries_.end())
+                        store_.entries_.erase(iterator);
 
             watches_.clear();
             changes_.clear();
@@ -420,8 +390,8 @@ class consistent_set_gt {
             // we must delete all the entries.
             if (stage_ == stage_t::staged_k)
                 for (auto const& [id, watch] : watches_) {
-                    auto source = set_.entries_.find(dated_identifier_t {id, watch.generation});
-                    auto node = set_.entries_.extract(source);
+                    auto source = store_.entries_.find(dated_identifier_t {id, watch.generation});
+                    auto node = store_.entries_.extract(source);
                     changes_.insert(std::move(node));
                 }
 
@@ -438,8 +408,8 @@ class consistent_set_gt {
             // if there are more than one with the same key,
             // the older generation must die.
             for (auto const& [id, watch] : watches_) {
-                auto range = set_.entries_.equal_range(id);
-                set_.unmask_and_compact(range.first, range.second, watch.generation);
+                auto range = store_.entries_.equal_range(id);
+                store_.unmask_and_compact(range.first, range.second, watch.generation);
             }
 
             stage_ = stage_t::created_k;
@@ -452,12 +422,16 @@ class consistent_set_gt {
     generation_t generation_ {0};
 
     consistent_set_gt() noexcept(false) {}
+    generation_t new_generation() noexcept { return ++generation_; }
 
-    void erase_visible(entry_iterator_t begin, entry_iterator_t end) noexcept {
+    template <typename callback_at = no_op_t>
+    void erase_visible(entry_iterator_t begin, entry_iterator_t end, callback_at&& callback = {}) noexcept {
         entry_iterator_t& current = begin;
         while (current != end)
-            if (current->visible)
+            if (current->visible) {
+                callback(*current);
                 current = entries_.erase(current);
+            }
             else
                 ++current;
     }
@@ -479,7 +453,6 @@ class consistent_set_gt {
     }
 
   public:
-    [[nodiscard]] generation_t new_generation() noexcept { return ++generation_; }
     [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
 
     [[nodiscard]] static std::optional<consistent_set_gt> make() noexcept {
@@ -511,38 +484,53 @@ class consistent_set_gt {
         });
     }
 
-    [[nodiscard]] status_t upsert(entry_set_t&& source) noexcept {
-        generation_t generation = new_generation();
-        for (auto source_it = source.begin(); source_it != source.end();) {
-            source_it->generation = generation;
-            source_it->visible = true;
-            auto source_node = source.extract(source_it++);
+    /**
+     * @brief
+     *
+     * @section Why not take R-Value?
+     * As this operation must be consistent, as the rest of the container,
+     * we need a place to return all the objects, if the operation fails.
+     * With R-Value, the batch would be lost.
+     *
+     * @param sources
+     * @return status_t
+     */
+    [[nodiscard]] status_t upsert(entry_set_t& sources) noexcept {
+        for (auto source = sources.begin(); source != sources.end();) {
+            bool should_compact = source->visible;
+            auto source_node = sources.extract(source++);
             auto range_end = entries_.insert(std::move(source_node)).position;
-            auto range_start = entries_.lower_bound(range_end->element);
-            erase_visible(range_start, range_end);
+            if (should_compact) {
+                auto range_start = entries_.lower_bound(range_end->element);
+                erase_visible(range_start, range_end);
+            }
         }
         return {success_k};
     }
 
     template <typename elements_begin_at, typename elements_end_at = elements_begin_at>
     [[nodiscard]] status_t upsert(elements_begin_at begin, elements_end_at end) noexcept {
+        generation_t generation = new_generation();
         std::optional<entry_set_t> batch;
         auto batch_construction_status = invoke_safely([&] {
             batch = entry_set_t {};
-            for (; begin != end; ++begin)
-                batch->emplace(std::move(*begin));
+            for (; begin != end; ++begin) {
+                auto iterator = batch->emplace(*begin).first;
+                iterator->generation = generation;
+                iterator->visible = true;
+            }
         });
         if (!batch_construction_status)
             return batch_construction_status;
 
-        return upsert(std::move(batch.value()));
+        return upsert(batch.value());
     }
 
-    template <typename callback_found_at, typename callback_missing_at>
-    [[nodiscard]] status_t find(identifier_t id,
+    template <typename comparable_at, typename callback_found_at, typename callback_missing_at = no_op_t>
+    [[nodiscard]] status_t find(comparable_at&& comparable,
                                 callback_found_at&& callback_found,
-                                callback_missing_at&& callback_missing) const noexcept {
-        auto range = entries_.equal_range(id);
+                                callback_missing_at&& callback_missing = {}) const noexcept {
+        auto range = entries_.equal_range(std::forward<comparable_at>(comparable));
         if (range.first == entries_.end())
             return invoke_safely(std::forward<callback_missing_at>(callback_missing));
 
@@ -558,11 +546,11 @@ class consistent_set_gt {
             return invoke_safely([&] { callback_found(*range.first); });
     }
 
-    template <typename callback_found_at, typename callback_missing_at>
-    [[nodiscard]] status_t find_next(identifier_t id,
+    template <typename comparable_at, typename callback_found_at, typename callback_missing_at = no_op_t>
+    [[nodiscard]] status_t find_next(comparable_at&& comparable,
                                      callback_found_at&& callback_found,
-                                     callback_missing_at&& callback_missing) const noexcept {
-        auto iterator = entries_.upper_bound(id);
+                                     callback_missing_at&& callback_missing = {}) const noexcept {
+        auto iterator = entries_.upper_bound(comparable);
         if (iterator == entries_.end())
             return invoke_safely(std::forward<callback_missing_at>(callback_missing));
 
@@ -580,8 +568,8 @@ class consistent_set_gt {
     /**
      * @brief Implements a heterogeneous lookup for all the entries falling into the `equal_range`.
      */
-    template <typename comparable_at, typename callback_found_at>
-    [[nodiscard]] status_t find_all(comparable_at&& comparable, callback_found_at&& callback) const noexcept {
+    template <typename comparable_at, typename callback_at>
+    [[nodiscard]] status_t find_equals(comparable_at&& comparable, callback_at&& callback) const noexcept {
         auto range = entries_.equal_range(std::forward<comparable_at>(comparable));
         for (; range.first != range.second; ++range.first)
             if (range.first->visible)
@@ -592,11 +580,11 @@ class consistent_set_gt {
     }
 
     /**
-     * @brief Implements a heterogeneous lookup, allowing in-place modification of the object,
+     * @brief Implements a heterogeneous lookup, allowing in-place @b modification of the object,
      * for all the entries falling into the `equal_range`.
      */
-    template <typename comparable_at, typename callback_found_at>
-    [[nodiscard]] status_t find_all(comparable_at&& comparable, callback_found_at&& callback) noexcept {
+    template <typename comparable_at, typename callback_at>
+    [[nodiscard]] status_t find_equals(comparable_at&& comparable, callback_at&& callback) noexcept {
         generation_t generation = new_generation();
         auto range = entries_.equal_range(std::forward<comparable_at>(comparable));
         for (; range.first != range.second; ++range.first)
@@ -609,18 +597,14 @@ class consistent_set_gt {
         return {success_k};
     }
 
-    [[nodiscard]] status_t erase(identifier_t id) noexcept {
-        return invoke_safely([&] {
-            auto range = entries_.equal_range(id);
-            erase_visible(range.first, range.second);
-        });
-    }
-
-    template <typename comparable_at>
-    [[nodiscard]] status_t erase_all(comparable_at&& comparable) noexcept {
+    /**
+     * @brief Removes one or more objects from the collection, that fall into the `equal_range`.
+     */
+    template <typename comparable_at, typename callback_at = no_op_t>
+    [[nodiscard]] status_t erase_equals(comparable_at&& comparable, callback_at&& callback = {}) noexcept {
         return invoke_safely([&] {
             auto range = entries_.equal_range(std::forward<comparable_at>(comparable));
-            erase_visible(range.first, range.second);
+            erase_visible(range.first, range.second, std::forward<callback_at>(callback));
         });
     }
 
@@ -647,11 +631,5 @@ void merge_overwrite(std::set<keys_at, compare_at, allocator_at>& target,
             std::swap(*result.position, result.node.value());
     }
 }
-
-/**
- * @brief
- * Detects dead-locks and reports `operation_would_block`.
- */
-class set_locked_gt {};
 
 } // namespace av

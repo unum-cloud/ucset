@@ -128,8 +128,7 @@ class consistent_set_gt {
         entry_t& operator=(entry_t&&) noexcept = default;
         entry_t(entry_t const&) noexcept = default;
         entry_t& operator=(entry_t const&) noexcept = default;
-        entry_t(identifier_t id) noexcept : element(id) {}
-        entry_t(element_t&& element) noexcept : element(std::move(element)) {}
+        entry_t(element_t&& element) noexcept : element(std::move(element)), deleted(false) {}
 
         operator element_t const&() const& { return element; }
         bool operator==(watch_t const& watch) const noexcept {
@@ -140,23 +139,47 @@ class consistent_set_gt {
         }
     };
 
+    template <typename at>
+    constexpr static bool knows_generation() {
+        using t = std::remove_reference_t<at>;
+        return std::is_same<t, entry_t>() || std::is_same<t, dated_identifier_t>();
+    }
+
     struct entry_less_t {
         using is_transparent = void;
 
-        dated_identifier_t date(entry_t const& entry) const noexcept { return {entry.element, entry.generation}; }
+        template <typename at>
+        decltype(auto) ref_comparable(at const& object) const noexcept {
+            using t = std::remove_reference_t<at>;
+            if constexpr (std::is_same<t, entry_t>())
+                return (element_t const&)object.element;
+            else if constexpr (std::is_same<t, dated_identifier_t>())
+                return (identifier_t const&)object.id;
+            else
+                return (t const&)object;
+        }
 
-        bool less(identifier_t const& a, identifier_t const& b) const noexcept { return comparator_t {}(a, b); }
-        bool less(entry_t const& a, identifier_t const& b) const noexcept { return comparator_t {}(a.element, b); }
-        bool less(identifier_t const& a, entry_t const& b) const noexcept { return comparator_t {}(a, b.element); }
-
-        bool less(entry_t const& a, entry_t const& b) const noexcept { return less(date(a), date(b)); }
-        bool less(entry_t const& a, dated_identifier_t const& b) const noexcept { return less(date(a), b); }
-        bool less(dated_identifier_t const& a, entry_t const& b) const noexcept { return less(a, date(b)); }
-        bool less(dated_identifier_t const& a, dated_identifier_t const& b) const noexcept {
+        template <typename first_at, typename second_at>
+        bool dated_compare(first_at const& a, second_at const& b) const noexcept {
             comparator_t less;
-            auto a_less_b = less(a.id, b.id);
-            auto b_less_a = less(b.id, a.id);
+            auto a_less_b = less(ref_comparable(a), ref_comparable(b));
+            auto b_less_a = less(ref_comparable(b), ref_comparable(a));
             return !a_less_b && !b_less_a ? a.generation < b.generation : a_less_b;
+        }
+
+        template <typename first_at, typename second_at>
+        bool native_compare(first_at const& a, second_at const& b) const noexcept {
+            return comparator_t {}(ref_comparable(a), ref_comparable(b));
+        }
+
+        template <typename first_at, typename second_at>
+        bool less(first_at const& a, second_at const& b) const noexcept {
+            using first_t = std::remove_reference_t<first_at>;
+            using second_t = std::remove_reference_t<second_at>;
+            if constexpr (knows_generation<first_t>() && knows_generation<second_t>())
+                return dated_compare(a, b);
+            else
+                return native_compare(a, b);
         }
 
         template <typename first_at, typename second_at>
@@ -416,7 +439,7 @@ class consistent_set_gt {
             // the older generation must die.
             for (auto const& [id, watch] : watches_) {
                 auto range = set_.entries_.equal_range(id);
-                set_.compact_outdated_entries(range.first, range.second, watch.generation);
+                set_.unmask_and_compact(range.first, range.second, watch.generation);
             }
 
             stage_ = stage_t::created_k;
@@ -430,20 +453,20 @@ class consistent_set_gt {
 
     consistent_set_gt() noexcept(false) {}
 
-    void compact_visible_entries(entry_iterator_t begin, entry_iterator_t end) noexcept {
+    void erase_visible(entry_iterator_t begin, entry_iterator_t end) noexcept {
         entry_iterator_t& current = begin;
-        for (; current != end; ++current)
+        while (current != end)
             if (current->visible)
-                entries_.erase(current);
+                current = entries_.erase(current);
+            else
+                ++current;
     }
 
-    void compact_outdated_entries(entry_iterator_t begin,
-                                  entry_iterator_t end,
-                                  generation_t generation_to_keep) noexcept {
+    void unmask_and_compact(entry_iterator_t begin, entry_iterator_t end, generation_t generation_to_unmask) noexcept {
         entry_iterator_t& current = begin;
         entry_iterator_t last_visible_entry = end;
         for (; current != end; ++current) {
-            auto keep_this = current->generation == generation_to_keep;
+            auto keep_this = current->generation == generation_to_unmask;
             current->visible |= keep_this;
             if (!current->visible)
                 continue;
@@ -484,7 +507,7 @@ class consistent_set_gt {
             entry.visible = true;
             auto range_end = entries_.insert(std::move(entry)).first;
             auto range_start = entries_.lower_bound(range_end->element);
-            compact_visible_entries(range_start, range_end);
+            erase_visible(range_start, range_end);
         });
     }
 
@@ -496,7 +519,7 @@ class consistent_set_gt {
             auto source_node = source.extract(source_it++);
             auto range_end = entries_.insert(std::move(source_node)).position;
             auto range_start = entries_.lower_bound(range_end->element);
-            compact_visible_entries(range_start, range_end);
+            erase_visible(range_start, range_end);
         }
         return {success_k};
     }
@@ -507,7 +530,7 @@ class consistent_set_gt {
         auto batch_construction_status = invoke_safely([&] {
             batch = entry_set_t {};
             for (; begin != end; ++begin)
-                batch->emplace(*begin);
+                batch->emplace(std::move(*begin));
         });
         if (!batch_construction_status)
             return batch_construction_status;
@@ -589,7 +612,7 @@ class consistent_set_gt {
     [[nodiscard]] status_t erase(identifier_t id) noexcept {
         return invoke_safely([&] {
             auto range = entries_.equal_range(id);
-            compact_visible_entries(range.first, range.second);
+            erase_visible(range.first, range.second);
         });
     }
 
@@ -597,7 +620,7 @@ class consistent_set_gt {
     [[nodiscard]] status_t erase_all(comparable_at&& comparable) noexcept {
         return invoke_safely([&] {
             auto range = entries_.equal_range(std::forward<comparable_at>(comparable));
-            compact_visible_entries(range.first, range.second);
+            erase_visible(range.first, range.second);
         });
     }
 

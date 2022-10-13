@@ -37,12 +37,13 @@ enum consistent_set_errc_t {
  */
 struct consistent_set_status_t {
     consistent_set_errc_t errc = consistent_set_errc_t::success_k;
-    inline operator bool() const noexcept { return errc == consistent_set_errc_t::success_k; }
+    constexpr operator bool() const noexcept { return errc == consistent_set_errc_t::success_k; }
 };
 
 struct no_op_t {
-    void operator()() const noexcept {}
-    void operator()(auto&&) const noexcept {}
+    constexpr void operator()() const noexcept {}
+    template <typename at>
+    constexpr void operator()(at&&) const noexcept {}
 };
 
 } // namespace av

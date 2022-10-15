@@ -1,19 +1,19 @@
-# If only [`std::set`][set] was a [DBMS][dbms]
+# If only [`std::set`][stl-set] was a [DBMS][dbms]
 
 This library provides you with a few containers:
 
-* `consistent_set`: serializable consistency, fully sorted, based on [`std::set`][set].
-* `consistent_avl`: serializable consistency, fully sorted, based on [AVL trees][avl].
-* `versioning_avl`: snapshot isolation via [MVCC][mvcc], fully sorted, based on [AVL trees][avl].
+* [`consistent_set`][consistent_set]: serializable consistency, fully sorted, based on [`std::set`][stl-set].
+* [`consistent_avl`][consistent_avl]: serializable consistency, fully sorted, based on [AVL trees][avl].
+* [`versioning_avl`][versioning_avl]: [snapshot isolation][snapshot] via [MVCC][mvcc], fully sorted, based on [AVL trees][avl].
 
 All containers:
 
-* are [`noexcept`] top to bottom!
+* are `noexcept` top to bottom!
 * are templated, to be used with any `noexcept`-movable and `default`-constructible types.
-* can be wrapped into `locked_gt`, to make them thread-safe.
-* can be wrapped into `partitioned_gt`, to make them concurrent.
+* can be wrapped into [`locked_gt`][locked], to make them thread-safe.
+* can be wrapped into [`partitioned_gt`][partitioned], to make them concurrent.
 
-...if you are feeling crazy and want your exceptions and all the classical interfaces back, you can also wrap any container into `crazy_gt`.
+...if you are feeling crazy and want your exceptions and all the classical interfaces back, you can also wrap any container into [`crazy_gt`][crazy].
 
 ## Installation & Usage
 
@@ -55,7 +55,7 @@ That library is stuffed with unit-, integration-, consistency- and stress-tests.
 Performance-wise, concurrent versions are generally bottlenecked by "mutexes" you are using.
 So we allow different implementations:
 
-* STLs: [`std::shared_mutex`][shared_mutex]
+* STLs: [`std::shared_mutex`][stl-shared_mutex]
 * Intels One API: [`tbb::rw_mutex`][tbb] or others
 
 ## Why I created this?
@@ -73,16 +73,24 @@ At Unum we live in the conditions where machines can easily have 1 TB of RAM per
 Furthermore, I have been working on [UKV][ukv] for a while now, as we want to standardize CRUD interfaces across databases.
 An we needed features, that are missing from Standard Templates Library containers:
 
-> Accessing the **allocator state** by reference.
-> **Reserving** memory for tree nodes before inserting.
-> Explicitly traversing trees for **random sampling**.
-> **Speed**!
+* Accessing the **allocator state** by reference.
+* **Reserving** memory for tree nodes before inserting.
+* Explicitly traversing trees for **random sampling**.
+* **Speed**!
 
-[set]: https://en.cppreference.com/w/cpp/container/set
+[stl-set]: https://en.cppreference.com/w/cpp/container/set
+[stl-shared_mutex]: https://en.cppreference.com/w/cpp/thread/shared_mutex
 [avl]: https://en.wikipedia.org/wiki/AVL_tree
-[ukv]: https://github.com/unum-cloud/ukv
 [tbb]: https://spec.oneapi.io/versions/latest/elements/oneTBB/source/named_requirements/mutexes/rw_mutex.html#readerwritermutex
 [dbms]: https://en.wikipedia.org/wiki/Database
 [mvcc]: https://en.wikipedia.org/wiki/Multiversion_concurrency_control
 [neo4j]: http://neo4j.com
-[shared_mutex]: https://en.cppreference.com/w/cpp/thread/shared_mutex
+[snapshot]: https://jepsen.io/consistency/models/snapshot-isolation
+
+[ukv]: https://github.com/unum-cloud/ukv
+[consistent_set]: tree/main/include/consistent_set/consistent_set.hpp
+[consistent_avl]: tree/main/include/consistent_set/consistent_avl.hpp
+[versioning_avl]: tree/main/include/consistent_set/versioning_avl.hpp
+[locked]: tree/main/include/consistent_set/locked.hpp
+[partitioned]: tree/main/include/consistent_set/partitioned.hpp
+[crazy]: tree/main/include/consistent_set/crazy.hpp

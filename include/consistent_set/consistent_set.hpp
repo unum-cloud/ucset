@@ -1,8 +1,8 @@
 #pragma once
 #include <functional>    // `std::less`
+#include <optional>      // `std::optional`
 #include <set>           // `std::set`
 #include <unordered_map> // `std::unordered_map`
-#include <optional>      // `std::optional`
 
 #include "status.hpp"
 
@@ -29,8 +29,8 @@ consistent_set_status_t invoke_safely(callable_at&& callable) noexcept {
 }
 
 /**
- * @brief Atomic (in DBMS sense) Transactional Store on top of a Binary Search Tree.
- * It can be a Key-Value store, if you store `std::pair` as entries.
+ * @brief Atomic (in DBMS sense) Transactional Store on top of a Binary Search
+ * Tree. It can be a Key-Value store, if you store `std::pair` as entries.
  *
  * @section Design Goals
  * !> Atomicity of batch operations.
@@ -54,117 +54,21 @@ class consistent_set_gt {
     using element_t = element_at;
     using comparator_t = comparator_at;
     using allocator_t = allocator_at;
-    using identifier_t = typename comparator_t::value_type;
-    using generation_t = std::int64_t;
-    using status_t = consistent_set_status_t;
 
-    static constexpr bool is_safe_to_move_k =              //
-        std::is_nothrow_move_constructible<element_t>() && //
-        std::is_nothrow_move_assignable<element_t>();
-
-    static_assert(!std::is_reference<element_t>(), "Only value types are supported.");
-    static_assert(std::is_nothrow_default_constructible<element_t>(), "We need an empty state.");
-    static_assert(is_safe_to_move_k, "To make all the methods `noexcept`, the moves must be safe too.");
-    static_assert(std::is_nothrow_copy_constructible<identifier_t>(), "To WATCH, the ID must be safe to copy.");
+    using versioning_t = element_versioning_gt<element_t, comparator_t>;
+    using identifier_t = typename versioning_t::identifier_t;
+    using generation_t = typename versioning_t::generation_t;
+    using status_t = typename versioning_t::status_t;
+    using dated_identifier_t = typename versioning_t::dated_identifier_t;
+    using watch_t = typename versioning_t::watch_t;
+    using entry_t = typename versioning_t::entry_t;
+    using entry_comparator_t = typename versioning_t::entry_comparator_t;
 
   private:
-    struct dated_identifier_t {
-        identifier_t id;
-        generation_t generation {0};
-    };
-
-    struct watch_t {
-        generation_t generation {0};
-        bool deleted {false};
-
-        bool operator==(watch_t const& watch) const noexcept {
-            return watch.deleted == deleted && watch.generation == generation;
-        }
-        bool operator!=(watch_t const& watch) const noexcept {
-            return watch.deleted != deleted || watch.generation != generation;
-        }
-    };
-
-    struct entry_t {
-        mutable element_t element;
-        mutable generation_t generation {0};
-        mutable bool deleted {false};
-        mutable bool visible {true};
-
-        entry_t() = default;
-        entry_t(entry_t&&) noexcept = default;
-        entry_t& operator=(entry_t&&) noexcept = default;
-        entry_t(entry_t const&) noexcept = default;
-        entry_t& operator=(entry_t const&) noexcept = default;
-        entry_t(element_t&& element) noexcept : element(std::move(element)), deleted(false) {}
-
-        operator element_t const&() const& { return element; }
-        bool operator==(watch_t const& watch) const noexcept {
-            return watch.deleted == deleted && watch.generation == generation;
-        }
-        bool operator!=(watch_t const& watch) const noexcept {
-            return watch.deleted != deleted || watch.generation != generation;
-        }
-    };
-
-    template <typename at>
-    constexpr static bool knows_generation() {
-        using t = std::remove_reference_t<at>;
-        return std::is_same<t, entry_t>() || std::is_same<t, dated_identifier_t>();
-    }
-
-    struct entry_less_t {
-        using is_transparent = void;
-
-        template <typename at>
-        decltype(auto) comparable(at const& object) const noexcept {
-            using t = std::remove_reference_t<at>;
-            if constexpr (std::is_same<t, entry_t>())
-                return (element_t const&)object.element;
-            else if constexpr (std::is_same<t, dated_identifier_t>())
-                return (identifier_t const&)object.id;
-            else
-                return (t const&)object;
-        }
-
-        template <typename first_at, typename second_at>
-        bool dated_compare(first_at const& a, second_at const& b) const noexcept {
-            comparator_t less;
-            auto a_less_b = less(comparable(a), comparable(b));
-            auto b_less_a = less(comparable(b), comparable(a));
-            return !a_less_b && !b_less_a ? a.generation < b.generation : a_less_b;
-        }
-
-        template <typename first_at, typename second_at>
-        bool native_compare(first_at const& a, second_at const& b) const noexcept {
-            return comparator_t {}(comparable(a), comparable(b));
-        }
-
-        template <typename first_at, typename second_at>
-        bool less(first_at const& a, second_at const& b) const noexcept {
-            using first_t = std::remove_reference_t<first_at>;
-            using second_t = std::remove_reference_t<second_at>;
-            if constexpr (knows_generation<first_t>() && knows_generation<second_t>())
-                return dated_compare(a, b);
-            else
-                return native_compare(a, b);
-        }
-
-        template <typename first_at, typename second_at>
-        bool operator()(first_at const& a, second_at const& b) const noexcept {
-            return less(a, b);
-        }
-
-        template <typename first_at, typename second_at>
-        bool same(first_at const& a, second_at const& b) const noexcept {
-            return !less(a, b) && !less(b, a);
-        }
-    };
-
     using entry_allocator_t = typename allocator_t::template rebind<entry_t>::other;
     using entry_set_t = std::set< //
         entry_t,
-        entry_less_t,
+        entry_comparator_t,
         entry_allocator_t>;
     using entry_iterator_t = typename entry_set_t::iterator;
 
@@ -210,7 +114,7 @@ class consistent_set_gt {
         [[nodiscard]] status_t upsert(element_t&& element) noexcept {
             return invoke_safely([&] {
                 auto iterator = changes_.lower_bound(element);
-                if (iterator == changes_.end() || !entry_less_t {}.same(iterator->element, element))
+                if (iterator == changes_.end() || !entry_comparator_t {}.same(iterator->element, element))
                     iterator = changes_.emplace_hint(iterator, std::move(element));
                 else
                     iterator->element = std::move(element);
@@ -223,7 +127,7 @@ class consistent_set_gt {
         [[nodiscard]] status_t erase(identifier_t const& id) noexcept {
             return invoke_safely([&] {
                 auto iterator = changes_.lower_bound(id);
-                if (iterator == changes_.end() || !entry_less_t {}.same(iterator->element, id))
+                if (iterator == changes_.end() || !entry_comparator_t {}.same(iterator->element, id))
                     iterator = changes_.emplace_hint(iterator, id);
                 iterator->generation = generation_;
                 iterator->deleted = true;
@@ -282,7 +186,7 @@ class consistent_set_gt {
                     return callback_found(external_element);
 
                 element_t const& internal_element = internal_iterator->element;
-                if (!entry_less_t {}(external_element, internal_element))
+                if (!entry_comparator_t {}(external_element, internal_element))
                     return callback_found(internal_element);
 
                 // Check if this entry was deleted and we should try again.
@@ -330,8 +234,8 @@ class consistent_set_gt {
                     return status;
             }
 
-            // Now all of our watches will be replaced with "links" to entries we
-            // are merging into the main tree.
+            // Now all of our watches will be replaced with "links" to entries
+            // we are merging into the main tree.
             watches_.clear();
             auto status = invoke_safely([&] { watches_.reserve(changes_.size()); });
             if (!status)
@@ -453,9 +357,9 @@ class consistent_set_gt {
   public:
     [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
 
-    [[nodiscard]] static std::optional<consistent_set_gt> make() noexcept {
-        std::optional<consistent_set_gt> result;
-        invoke_safely([&] { result.emplace(consistent_set_gt {}); });
+    [[nodiscard]] static std::optional<store_t> make() noexcept {
+        std::optional<store_t> result;
+        invoke_safely([&] { result.emplace(store_t {}); });
         return result;
     }
 
@@ -556,7 +460,7 @@ class consistent_set_gt {
         // Skip all the invisible entries
         identifier_t next_id {iterator->element};
         while (true)
-            if (iterator == entries_.end() || !entry_less_t {}.same(iterator->element, next_id))
+            if (iterator == entries_.end() || !entry_comparator_t {}.same(iterator->element, next_id))
                 return invoke_safely(std::forward<callback_missing_at>(callback_missing));
             else if (!iterator->visible)
                 ++iterator;
@@ -565,7 +469,8 @@ class consistent_set_gt {
     }
 
     /**
-     * @brief Implements a heterogeneous lookup for all the entries falling into the `equal_range`.
+     * @brief Implements a heterogeneous lookup for all the entries falling into
+     * the `equal_range`.
      */
     template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
     [[nodiscard]] status_t find_interval(comparable_at&& comparable, callback_at&& callback) const noexcept {
@@ -579,8 +484,9 @@ class consistent_set_gt {
     }
 
     /**
-     * @brief Implements a heterogeneous lookup, allowing in-place @b modification of the object,
-     * for all the entries falling into the `equal_range`.
+     * @brief Implements a heterogeneous lookup, allowing in-place @b
+     * modification of the object, for all the entries falling into the
+     * `equal_range`.
      */
     template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
     [[nodiscard]] status_t find_interval(comparable_at&& comparable, callback_at&& callback) noexcept {
@@ -597,7 +503,8 @@ class consistent_set_gt {
     }
 
     /**
-     * @brief Removes one or more objects from the collection, that fall into the `equal_range`.
+     * @brief Removes one or more objects from the collection, that fall into
+     * the `equal_range`.
      */
     template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
     [[nodiscard]] status_t erase_interval(comparable_at&& comparable, callback_at&& callback = {}) noexcept {

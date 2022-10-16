@@ -2,7 +2,7 @@
 #include <consistent_set/consistent_avl.hpp>
 #include <consistent_set/versioning_avl.hpp>
 #include <consistent_set/locked.hpp>
-// #include <consistent_set/partitioned.hpp>
+#include <consistent_set/partitioned.hpp>
 
 #define macro_concat_(prefix, suffix) prefix##suffix
 #define macro_concat(prefix, suffix) macro_concat_(prefix, suffix)
@@ -23,8 +23,8 @@ void api() {
         identifier_t {},
         [](element_t const&) {},
         [] {});
-    _ = container.find_equals(identifier_t {}, [](element_t const&) {});
-    _ = container.erase_equals(identifier_t {}, [](element_t const&) {});
+    _ = container.find_interval(identifier_t {}, [](element_t const&) {});
+    _ = container.erase_interval(identifier_t {}, [](element_t const&) {});
     _ = container.clear();
     _ = container.size();
 
@@ -65,5 +65,7 @@ int main() {
     using namespace av;
     using stl_t = consistent_set_gt<pair_t, pair_compare_t>;
     api<stl_t>();
+    api<locked_gt<stl_t>>();
+    api<partitioned_gt<stl_t>>();
     return 0;
 }

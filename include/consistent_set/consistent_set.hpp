@@ -568,7 +568,7 @@ class consistent_set_gt {
      * @brief Implements a heterogeneous lookup for all the entries falling into the `equal_range`.
      */
     template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
-    [[nodiscard]] status_t find_equals(comparable_at&& comparable, callback_at&& callback) const noexcept {
+    [[nodiscard]] status_t find_interval(comparable_at&& comparable, callback_at&& callback) const noexcept {
         auto range = entries_.equal_range(std::forward<comparable_at>(comparable));
         for (; range.first != range.second; ++range.first)
             if (range.first->visible)
@@ -583,7 +583,7 @@ class consistent_set_gt {
      * for all the entries falling into the `equal_range`.
      */
     template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
-    [[nodiscard]] status_t find_equals(comparable_at&& comparable, callback_at&& callback) noexcept {
+    [[nodiscard]] status_t find_interval(comparable_at&& comparable, callback_at&& callback) noexcept {
         generation_t generation = new_generation();
         auto range = entries_.equal_range(std::forward<comparable_at>(comparable));
         for (; range.first != range.second; ++range.first)
@@ -600,7 +600,7 @@ class consistent_set_gt {
      * @brief Removes one or more objects from the collection, that fall into the `equal_range`.
      */
     template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
-    [[nodiscard]] status_t erase_equals(comparable_at&& comparable, callback_at&& callback = {}) noexcept {
+    [[nodiscard]] status_t erase_interval(comparable_at&& comparable, callback_at&& callback = {}) noexcept {
         return invoke_safely([&] {
             auto range = entries_.equal_range(std::forward<comparable_at>(comparable));
             erase_visible(range.first, range.second, std::forward<callback_at>(callback));

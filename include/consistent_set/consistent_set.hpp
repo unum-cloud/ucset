@@ -72,13 +72,9 @@ class consistent_set_gt {
         entry_allocator_t>;
     using entry_iterator_t = typename entry_set_t::iterator;
 
-    using watches_allocator_t = typename allocator_t::template rebind<std::pair<identifier_t const, watch_t>>::other;
-    using watches_map_t = std::unordered_map< //
-        identifier_t,
-        watch_t,
-        std::hash<identifier_t>,
-        std::equal_to<identifier_t>,
-        watches_allocator_t>;
+    using watched_identifier_t = std::pair<identifier_t, watch_t>;
+    using watches_allocator_t = typename allocator_t::template rebind<watched_identifier_t>::other;
+    using watches_map_t = std::vector<watched_identifier_t, watches_allocator_t>;
     using watch_iterator_t = typename watches_map_t::iterator;
 
     using store_t = consistent_set_gt;
@@ -139,14 +135,16 @@ class consistent_set_gt {
             return store_ref().find(
                 id,
                 [&](entry_t const& entry) {
-                    watches_.insert_or_assign(identifier_t(entry.element), watch_t {entry.generation, entry.deleted});
+                    watches_.push_back({identifier_t {entry.element}, watch_t {entry.generation, entry.deleted}});
                 },
-                [&] { watches_.insert_or_assign(id, missing_watch()); });
+                [&] {
+                    watches_.push_back({id, missing_watch()});
+                });
         }
 
         [[nodiscard]] status_t watch(entry_t const& entry) noexcept {
             return invoke_safely([&] {
-                watches_.insert_or_assign(identifier_t(entry.element), watch_t {entry.generation, entry.deleted});
+                watches_.push_back({identifier_t {entry.element}, watch_t {entry.generation, entry.deleted}});
             });
         }
 
@@ -222,12 +220,12 @@ class consistent_set_gt {
             // First, check if we have any collisions.
             auto& store = store_ref();
             auto entry_missing = missing_watch();
-            for (auto const& [id, watch] : watches_) {
+            for (auto const& id_and_watch : watches_) {
                 auto consistency_violated = false;
                 auto status = store.find(
-                    id,
-                    [&](entry_t const& entry) noexcept { consistency_violated = entry != watch; },
-                    [&]() noexcept { consistency_violated = entry_missing != watch; });
+                    id_and_watch.first,
+                    [&](entry_t const& entry) noexcept { consistency_violated = entry != id_and_watch.second; },
+                    [&]() noexcept { consistency_violated = entry_missing != id_and_watch.second; });
                 if (consistency_violated)
                     return {consistent_set_errc_t::consistency_k};
                 if (!status)
@@ -244,7 +242,7 @@ class consistent_set_gt {
             // No new memory allocations or failures are possible after that.
             // It is all safe.
             for (auto const& entry : changes_)
-                watches_.insert_or_assign(identifier_t(entry.element), watch_t {generation_, entry.deleted});
+                watches_.push_back({identifier_t {entry.element}, watch_t {generation_, entry.deleted}});
 
             // Than just merge our current nodes.
             // The visibility will be updated later in the `commit`.
@@ -264,11 +262,12 @@ class consistent_set_gt {
             // we must delete all the entries.
             auto& store = store_ref();
             if (stage_ == stage_t::staged_k)
-                for (auto const& [id, watch] : watches_)
+                for (auto const& id_and_watch : watches_) {
                     // Heterogeneous `erase` is only coming in C++23.
-                    if (auto iterator = store.entries_.find(dated_identifier_t {id, watch.generation});
-                        iterator != store.entries_.end())
+                    dated_identifier_t dated {id_and_watch.first, id_and_watch.second.generation};
+                    if (auto iterator = store.entries_.find(dated); iterator != store.entries_.end())
                         store.entries_.erase(iterator);
+                }
 
             watches_.clear();
             changes_.clear();
@@ -290,8 +289,9 @@ class consistent_set_gt {
             // we must delete all the entries.
             auto& store = store_ref();
             if (stage_ == stage_t::staged_k)
-                for (auto const& [id, watch] : watches_) {
-                    auto source = store.entries_.find(dated_identifier_t {id, watch.generation});
+                for (auto const& id_and_watch : watches_) {
+                    dated_identifier_t dated {id_and_watch.first, id_and_watch.second.generation};
+                    auto source = store.entries_.find(dated);
                     auto node = store.entries_.extract(source);
                     changes_.insert(std::move(node));
                 }
@@ -309,9 +309,9 @@ class consistent_set_gt {
             // if there are more than one with the same key,
             // the older generation must die.
             auto& store = store_ref();
-            for (auto const& [id, watch] : watches_) {
-                auto range = store.entries_.equal_range(id);
-                store.unmask_and_compact(range.first, range.second, watch.generation);
+            for (auto const& id_and_watch : watches_) {
+                auto range = store.entries_.equal_range(id_and_watch.first);
+                store.unmask_and_compact(range.first, range.second, id_and_watch.second.generation);
             }
 
             stage_ = stage_t::created_k;

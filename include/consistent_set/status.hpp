@@ -49,6 +49,9 @@ struct no_op_t {
 template <typename element_at, typename comparator_at>
 struct element_versioning_gt {
 
+    using element_t = element_at;
+    using comparator_t = comparator_at;
+
     using identifier_t = typename comparator_t::value_type;
     using generation_t = std::int64_t;
     using status_t = consistent_set_status_t;

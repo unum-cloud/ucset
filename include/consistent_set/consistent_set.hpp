@@ -1,8 +1,9 @@
 #pragma once
-#include <functional>    // `std::less`
-#include <optional>      // `std::optional`
-#include <set>           // `std::set`
-#include <unordered_map> // `std::unordered_map`
+#include <functional> // `std::less` as default
+#include <memory>     // `std::allocator` as default
+#include <optional>   // `std::optional` for "expected"
+#include <set>        // `std::set` for entries
+#include <vector>     // `std::vector` for watches
 
 #include "status.hpp"
 
@@ -61,6 +62,7 @@ class consistent_set_gt {
     using status_t = typename versioning_t::status_t;
     using dated_identifier_t = typename versioning_t::dated_identifier_t;
     using watch_t = typename versioning_t::watch_t;
+    using watched_identifier_t = typename versioning_t::watched_identifier_t;
     using entry_t = typename versioning_t::entry_t;
     using entry_comparator_t = typename versioning_t::entry_comparator_t;
 
@@ -72,10 +74,9 @@ class consistent_set_gt {
         entry_allocator_t>;
     using entry_iterator_t = typename entry_set_t::iterator;
 
-    using watched_identifier_t = std::pair<identifier_t, watch_t>;
     using watches_allocator_t = typename allocator_t::template rebind<watched_identifier_t>::other;
-    using watches_map_t = std::vector<watched_identifier_t, watches_allocator_t>;
-    using watch_iterator_t = typename watches_map_t::iterator;
+    using watches_array_t = std::vector<watched_identifier_t, watches_allocator_t>;
+    using watch_iterator_t = typename watches_array_t::iterator;
 
     using store_t = consistent_set_gt;
 
@@ -91,7 +92,7 @@ class consistent_set_gt {
 
         store_t* store_ {nullptr};
         entry_set_t changes_ {};
-        watches_map_t watches_ {};
+        watches_array_t watches_ {};
         generation_t generation_ {0};
         stage_t stage_ {stage_t::created_k};
 
@@ -223,9 +224,9 @@ class consistent_set_gt {
             for (auto const& id_and_watch : watches_) {
                 auto consistency_violated = false;
                 auto status = store.find(
-                    id_and_watch.first,
-                    [&](entry_t const& entry) noexcept { consistency_violated = entry != id_and_watch.second; },
-                    [&]() noexcept { consistency_violated = entry_missing != id_and_watch.second; });
+                    id_and_watch.id,
+                    [&](entry_t const& entry) noexcept { consistency_violated = entry != id_and_watch.watch; },
+                    [&]() noexcept { consistency_violated = entry_missing != id_and_watch.watch; });
                 if (consistency_violated)
                     return {consistent_set_errc_t::consistency_k};
                 if (!status)
@@ -264,7 +265,7 @@ class consistent_set_gt {
             if (stage_ == stage_t::staged_k)
                 for (auto const& id_and_watch : watches_) {
                     // Heterogeneous `erase` is only coming in C++23.
-                    dated_identifier_t dated {id_and_watch.first, id_and_watch.second.generation};
+                    dated_identifier_t dated {id_and_watch.id, id_and_watch.watch.generation};
                     if (auto iterator = store.entries_.find(dated); iterator != store.entries_.end())
                         store.entries_.erase(iterator);
                 }
@@ -290,7 +291,7 @@ class consistent_set_gt {
             auto& store = store_ref();
             if (stage_ == stage_t::staged_k)
                 for (auto const& id_and_watch : watches_) {
-                    dated_identifier_t dated {id_and_watch.first, id_and_watch.second.generation};
+                    dated_identifier_t dated {id_and_watch.id, id_and_watch.watch.generation};
                     auto source = store.entries_.find(dated);
                     auto node = store.entries_.extract(source);
                     changes_.insert(std::move(node));
@@ -310,8 +311,8 @@ class consistent_set_gt {
             // the older generation must die.
             auto& store = store_ref();
             for (auto const& id_and_watch : watches_) {
-                auto range = store.entries_.equal_range(id_and_watch.first);
-                store.unmask_and_compact(range.first, range.second, id_and_watch.second.generation);
+                auto range = store.entries_.equal_range(id_and_watch.id);
+                store.unmask_and_compact(range.first, range.second, id_and_watch.watch.generation);
             }
 
             stage_ = stage_t::created_k;

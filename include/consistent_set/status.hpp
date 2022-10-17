@@ -79,6 +79,11 @@ struct element_versioning_gt {
         }
     };
 
+    struct watched_identifier_t {
+        identifier_t id;
+        watch_t watch;
+    };
+
     struct entry_t {
         mutable element_t element;
         mutable generation_t generation {0};

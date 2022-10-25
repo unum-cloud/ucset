@@ -557,27 +557,9 @@ class consistent_set_gt {
     }
 
     /**
-     * @brief Implements a heterogeneous lookup for all the entries falling into
-     * the `equal_range` compared to @ref `comparable`.
-     */
-    template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
-    [[nodiscard]] status_t equal_range(comparable_at&& comparable, callback_at&& callback) const noexcept {
-        return range(comparable, comparable, std::forward<callback_at>(callback));
-    }
-
-    /**
-     * @brief Implements a heterogeneous lookup, allowing in-place
-     * @b modification of the object, for all the entries falling
-     * into the `equal_range` compared to @ref `comparable`.
-     */
-    template <typename comparable_at = identifier_t, typename callback_at = no_op_t>
-    [[nodiscard]] status_t equal_range(comparable_at&& comparable, callback_at&& callback) noexcept {
-        return range(comparable, comparable, std::forward<callback_at>(callback));
-    }
-
-    /**
      * @brief Implements a heterogeneous lookup for all the entries falling in
-     * between the @ref `lower` and the @ref `upper`.
+     * between the @ref `lower` and the @ref `upper`. Degrades to `equal_range()`,
+     * if they are the same.
      */
     template <typename lower_at = identifier_t, typename upper_at = identifier_t, typename callback_at = no_op_t>
     [[nodiscard]] status_t range(lower_at&& lower, upper_at&& upper, callback_at&& callback) const noexcept {
@@ -593,7 +575,8 @@ class consistent_set_gt {
 
     /**
      * @brief Implements a heterogeneous lookup for all the entries falling in
-     * between the @ref `lower` and the @ref `upper`. Allows in-place @b modification.
+     * between the @ref `lower` and the @ref `upper`. Degrades to `equal_range()`,
+     * if they are the same. Allows in-place @b modification.
      */
     template <typename lower_at = identifier_t, typename upper_at = identifier_t, typename callback_at = no_op_t>
     [[nodiscard]] status_t range(lower_at&& lower, upper_at&& upper, callback_at&& callback) noexcept {
@@ -614,7 +597,7 @@ class consistent_set_gt {
      * @brief Erases all the entries falling in between the @ref `lower` and the @ref `upper`.
      */
     template <typename lower_at = identifier_t, typename upper_at = identifier_t, typename callback_at = no_op_t>
-    [[nodiscard]] status_t erase(lower_at&& lower, upper_at&& upper, callback_at&& callback) noexcept {
+    [[nodiscard]] status_t erase_range(lower_at&& lower, upper_at&& upper, callback_at&& callback) noexcept {
         return invoke_safely([&] {
             auto lower_iterator = entries_.lower_bound(std::forward<lower_at>(lower));
             auto const upper_iterator = entries_.upper_bound(std::forward<upper_at>(upper));
@@ -653,10 +636,10 @@ class consistent_set_gt {
      * @param[in] callback      Callback to receive the sampled @c `element_t` entry.
      */
     template <typename lower_at, typename upper_at, typename generator_at, typename callback_at = no_op_t>
-    [[nodiscard]] status_t sample(lower_at&& lower,
-                                  upper_at&& upper,
-                                  generator_at&& generator,
-                                  callback_at&& callback) const noexcept {
+    [[nodiscard]] status_t sample_range(lower_at&& lower,
+                                        upper_at&& upper,
+                                        generator_at&& generator,
+                                        callback_at&& callback) const noexcept {
 
         std::size_t count = 0;
         auto status = range(lower, upper, [&](element_t const&) noexcept { ++count; });
@@ -686,12 +669,12 @@ class consistent_set_gt {
      * @param[in] reservoir             Iterator to the beginning of the output reservoir.
      */
     template <typename lower_at, typename upper_at, typename generator_at, typename output_iterator_at>
-    [[nodiscard]] status_t sample(lower_at&& lower,
-                                  upper_at&& upper,
-                                  generator_at&& generator,
-                                  std::size_t& seen,
-                                  std::size_t reservoir_capacity,
-                                  output_iterator_at&& reservoir) const noexcept {
+    [[nodiscard]] status_t sample_range(lower_at&& lower,
+                                        upper_at&& upper,
+                                        generator_at&& generator,
+                                        std::size_t& seen,
+                                        std::size_t reservoir_capacity,
+                                        output_iterator_at&& reservoir) const noexcept {
 
         using output_iterator_t = std::remove_reference_t<output_iterator_at>;
         using output_category_t = typename std::iterator_traits<output_iterator_t>::iterator_category;

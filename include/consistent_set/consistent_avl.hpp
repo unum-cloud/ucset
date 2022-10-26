@@ -275,7 +275,7 @@ class avl_node_gt {
         std::size_t count_matches = 0;
         range(node, low, high, [&](node_t* node) noexcept { count_matches += predicate(node); });
 
-        node_t result = node;
+        node_t* result = node;
         std::uniform_int_distribution<std::size_t> distribution {0, count_matches + 1};
         auto choice = distribution(generator);
         if (choice != 0)
@@ -545,7 +545,7 @@ class avl_tree_gt {
     avl_tree_gt() noexcept = default;
     avl_tree_gt(avl_tree_gt&& other) noexcept
         : root_(std::exchange(other.root_, nullptr)), size_(std::exchange(other.size_, 0)) {}
-    avl_tree_gt& operator=(avl_tree_gt& other) noexcept {
+    avl_tree_gt& operator=(avl_tree_gt&& other) noexcept {
         std::swap(root_, other.root_);
         std::swap(size_, other.size_);
         return *this;
@@ -749,6 +749,7 @@ class consistent_avl_gt {
         watches_array_t watches_ {};
         generation_t generation_ {0};
         stage_t stage_ {stage_t::created_k};
+        bool is_snapshot_ {false};
 
         transaction_t(store_t& set) noexcept : store_(&set) {}
         void date(generation_t generation) noexcept { generation_ = generation; }
@@ -929,7 +930,7 @@ class consistent_avl_gt {
             auto& store = store_ref();
             if (stage_ == stage_t::staged_k)
                 for (auto const& id_and_watch : watches_)
-                    changes_.insert(
+                    changes_.merge(
                         store.entries_.extract(dated_identifier_t {id_and_watch.id, id_and_watch.watch.generation}));
 
             watches_.clear();
@@ -958,7 +959,6 @@ class consistent_avl_gt {
     generation_t generation_ {0};
     std::size_t visible_count_ {0};
 
-    consistent_avl_gt() noexcept {}
     generation_t new_generation() noexcept { return ++generation_; }
 
     void unmask_and_compact(identifier_t const& id, generation_t generation_to_unmask) noexcept {
@@ -980,6 +980,17 @@ class consistent_avl_gt {
     }
 
   public:
+    consistent_avl_gt() noexcept {}
+    consistent_avl_gt(consistent_avl_gt&& other) noexcept
+        : entries_(std::move(other.entries_)), generation_(other.generation_), visible_count_(other.visible_count_) {}
+
+    consistent_avl_gt& operator=(consistent_avl_gt&& other) noexcept {
+        entries_ = std::move(other.entries_);
+        generation_ = other.generation_;
+        visible_count_ = other.visible_count_;
+        return *this;
+    }
+
     [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
 
     [[nodiscard]] static std::optional<store_t> make(allocator_t&& allocator = {}) noexcept { return store_t {}; }
@@ -1090,11 +1101,8 @@ class consistent_avl_gt {
 
         // Skip all the invisible entries
         entry_node_t* next_visible = entry_node_t::upper_bound(entries_.root(), comparable);
-        while (next_visible && !next_visible->entry.visible) {
+        while (next_visible && !next_visible->entry.visible)
             next_visible = entry_node_t::upper_bound(entries_.root(), next_visible->entry);
-            // The logic is more complex if we start doing multi-versioning
-            // TODO:
-        }
 
         // static_assert(noexcept(callback_found(next_visible->entry)));
         // static_assert(noexcept(callback_missing()));
@@ -1153,10 +1161,10 @@ class consistent_avl_gt {
 
         auto node = entry_node_t::sample_range( //
             entries_.root(),
-            std::forward<generator_at>(generator),
             lower,
             upper,
-            [](entry_node_t* node) { return node->visible; });
+            std::forward<generator_at>(generator),
+            [](entry_node_t* node) { return node->entry.visible; });
         if (node)
             callback(node->entry);
         return {success_k};

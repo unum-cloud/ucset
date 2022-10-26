@@ -520,9 +520,9 @@ class consistent_set_gt {
             ++range.first;
 
         // Check if there are no visible entries at all
-        return range.first == range.second //
-                   ? invoke_safely(std::forward<callback_missing_at>(callback_missing))
-                   : invoke_safely([&] { callback_found(*range.first); });
+        return range.first != range.second //
+                   ? invoke_safely([&] { callback_found(*range.first); })
+                   : invoke_safely(std::forward<callback_missing_at>(callback_missing));
     }
 
     /**
@@ -546,8 +546,8 @@ class consistent_set_gt {
             ++iterator;
 
         return iterator != entries_.end() //
-                   ? invoke_safely(std::forward<callback_missing_at>(callback_missing))
-                   : invoke_safely([&] { callback_found(*iterator); });
+                   ? invoke_safely([&] { callback_found(*iterator); })
+                   : invoke_safely(std::forward<callback_missing_at>(callback_missing));
     }
 
     /**

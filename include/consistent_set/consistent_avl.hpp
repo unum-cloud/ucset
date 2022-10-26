@@ -1014,9 +1014,48 @@ class consistent_avl_gt {
         // To make such batch insertions cheaper and easier until we have fast joins,
         // we can build a linked-list of pre-allocated nodes. Populate them and insert
         // one-by-one with the same generation.
-        auto count = end - begin;
-        auto last_node = nullptr;
-        for (std::size_t i = 0; i != count; ++i) {
+        std::size_t const count = end - begin;
+        std::size_t count_remaining = count;
+        entry_node_t* last_node = nullptr;
+        while (count_remaining) {
+            auto next_node = entries_.allocator().allocate(1);
+            if (!next_node)
+                break;
+            // Reset the state
+            next_node->right = nullptr;
+            // Link for future iteration
+            last_node->right = next_node;
+            next_node->left = last_node;
+            count_remaining--;
+        }
+
+        // We have failed to allocate all the needed nodes.
+        if (count_remaining) {
+            while (count_remaining != count) {
+                auto prev_node = last_node->left;
+                entries_.allocator().deallocate(last_node, 1);
+                last_node = prev_node;
+                ++count_remaining;
+            }
+            return {out_of_memory_heap_k};
+        }
+
+        // Populate the allocated nodes and merge into the tree.
+        generation_t generation = new_generation();
+        while (count_remaining != count) {
+            auto prev_node = last_node->left;
+            last_node->left = nullptr;
+            last_node->right = nullptr;
+
+            auto& entry = last_node->entry;
+            new (&entry.element) element_t(*begin);
+            entry.generation = generation;
+            entry.deleted = false;
+            entry.visible = true;
+            entries_.merge(extract_result_t {&entries_, last_node});
+
+            ++count_remaining;
+            ++begin;
         }
 
         return {success_k};

@@ -36,7 +36,9 @@ class avl_node_gt {
     node_t* right = nullptr;
     /**
      * @brief Root has the biggest `height` in the tree.
-     * Allows you to guess the upper bound of branch size.
+     * Zero is possible only in the uninitialized detached state.
+     * A non-NULL node would have height of one.
+     * Allows you to guess the upper bound of branch size, as `1 << height`.
      */
     height_t height = 0;
 
@@ -373,17 +375,17 @@ class avl_node_gt {
 
         auto less = comparator_t {};
         if (less(comparable, node->entry)) {
-            auto downstream = find_or_make(node->left, comparable, node_allocator);
+            auto downstream = find_or_make(node->left, comparable, std::forward<node_allocator_at>(node_allocator));
             node->left = downstream.root;
             if (downstream.inserted)
-                node = rebalance_after_insert(node, comparable);
+                node = rebalance_after_insert(node, downstream.match->entry);
             return {node, downstream.match, downstream.inserted};
         }
         else if (less(node->entry, comparable)) {
-            auto downstream = find_or_make(node->right, comparable, node_allocator);
+            auto downstream = find_or_make(node->right, comparable, std::forward<node_allocator_at>(node_allocator));
             node->right = downstream.root;
             if (downstream.inserted)
-                node = rebalance_after_insert(node, comparable);
+                node = rebalance_after_insert(node, downstream.match->entry);
             return {node, downstream.match, downstream.inserted};
         }
         else {
@@ -395,21 +397,25 @@ class avl_node_gt {
     template <typename node_allocator_at>
     static find_or_make_result_t insert(node_t* node, entry_t&& entry, node_allocator_at&& node_allocator) noexcept {
         auto result = find_or_make(node, entry, std::forward<node_allocator_at>(node_allocator));
-        if (result.inserted)
-            result.match->entry = std::move(entry);
+        if (result.match && result.inserted)
+            new (&result.match->entry) entry_t(std::move(entry));
         return result;
     }
 
     template <typename node_allocator_at>
     static find_or_make_result_t upsert(node_t* node, entry_t&& entry, node_allocator_at&& node_allocator) noexcept {
         auto result = find_or_make(node, entry, std::forward<node_allocator_at>(node_allocator));
-        if (result.match)
-            result.match->entry = std::move(entry);
+        if (result.match) {
+            if (result.inserted)
+                new (&result.match->entry) entry_t(std::move(entry));
+            else
+                result.match->entry = std::move(entry);
+        }
         return result;
     }
 
     static find_or_make_result_t insert(node_t* node, node_t* new_child) noexcept {
-        return find_or_make(node, node->entry, [=]() { return new_child; });
+        return find_or_make(node, new_child->entry, [=]() noexcept { return new_child; });
     }
 
 #pragma mark - Removals
@@ -421,7 +427,7 @@ class avl_node_gt {
         node_t* release() noexcept { return extracted.release(); }
     };
 
-    inline static node_t* rebalance_after_extract(node_t* node) noexcept {
+    static node_t* rebalance_after_extract(node_t* node) noexcept {
         node->height = 1 + std::max(get_height(node->left), get_height(node->right));
         auto balance = get_balance(node);
 
@@ -458,7 +464,7 @@ class avl_node_gt {
         // smallest entry in the right branch.
         if (node->left && node->right) {
             node_t* midpoint = find_min(node->right);
-            auto downstream = extract(midpoint->right, midpoint->entry);
+            auto downstream = extract(node->right, midpoint->entry);
             midpoint = downstream.extracted.release();
             midpoint->left = node->left;
             midpoint->right = downstream.root;
@@ -633,6 +639,7 @@ class avl_tree_gt {
         extract_result_t(extract_result_t const&) = delete;
         extract_result_t& operator=(extract_result_t const&) = delete;
         explicit operator bool() const noexcept { return node_ptr_; }
+        node_t* release() noexcept { return std::exchange(node_ptr_, nullptr); }
     };
 
     template <typename comparable_at>
@@ -656,12 +663,9 @@ class avl_tree_gt {
 
     template <typename callback_at>
     void for_each(callback_at&& callback) noexcept {
-        node_t::for_each_bottom_up(root_, [&](node_t* node) { callback(node->entry); });
+        node_t::for_each_bottom_up(root_, [&](node_t* node) noexcept { callback(node->entry); });
     }
 
-    /**
-     *
-     */
     void merge(avl_tree_t& other) noexcept {
         node_t::for_each_bottom_up(other.root_, [&](node_t* node) noexcept {
             auto result = node_t::insert(root_, node);
@@ -673,7 +677,7 @@ class avl_tree_gt {
     void merge(extract_result_t other) noexcept {
         if (!other.node_ptr_)
             return;
-        auto result = node_t::insert(root_, other.node_ptr_);
+        auto result = node_t::insert(root_, other.release());
         root_ = result.root;
         size_ += result.inserted;
     }
@@ -1015,6 +1019,7 @@ class consistent_avl_gt {
         entry.deleted = false;
         entry.visible = true;
         entries_.merge(extract_result_t {&entries_, node});
+        ++visible_count_;
 
         return erase_range(id, dated_identifier_t {id, generation});
     }
@@ -1029,22 +1034,26 @@ class consistent_avl_gt {
         std::size_t count_remaining = count;
         entry_node_t* last_node = nullptr;
         while (count_remaining) {
-            auto next_node = entries_.allocator().allocate(1);
+            entry_node_t* next_node = entries_.allocator().allocate(1);
             if (!next_node)
                 break;
             // Reset the state
             next_node->right = nullptr;
             // Link for future iteration
-            last_node->right = next_node;
+            if (last_node)
+                last_node->right = next_node;
             next_node->left = last_node;
+            // Update state for next loop cycle
+            last_node = next_node;
             count_remaining--;
         }
 
         // We have failed to allocate all the needed nodes.
         if (count_remaining) {
             while (count_remaining != count) {
-                auto prev_node = last_node->left;
+                entry_node_t* prev_node = last_node->left;
                 entries_.allocator().deallocate(last_node, 1);
+                // Update state for next loop cycle
                 last_node = prev_node;
                 ++count_remaining;
             }
@@ -1054,7 +1063,7 @@ class consistent_avl_gt {
         // Populate the allocated nodes and merge into the tree.
         generation_t generation = new_generation();
         while (count_remaining != count) {
-            auto prev_node = last_node->left;
+            entry_node_t* prev_node = last_node->left;
             last_node->left = nullptr;
             last_node->right = nullptr;
 
@@ -1064,7 +1073,14 @@ class consistent_avl_gt {
             entry.deleted = false;
             entry.visible = true;
             entries_.merge(extract_result_t {&entries_, last_node});
+            ++visible_count_;
 
+            // Remove older revisions
+            identifier_t id {entry.element};
+            erase_range(id, dated_identifier_t {id, generation});
+
+            // Update state for next loop cycle
+            last_node = prev_node;
             ++count_remaining;
             ++begin;
         }

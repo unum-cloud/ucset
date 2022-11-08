@@ -105,13 +105,13 @@ class avl_node_gt {
      */
     template <typename comparable_at>
     static node_t* lower_bound(node_t* node, comparable_at&& comparable) noexcept {
-        node_t* succ = nullptr;
-        auto less = comparator_t {};
+        node_t* successor = nullptr;
+        comparator_t less;
         while (node) {
             // If the given key is less than the root node, visit the left
             // subtree, taking current node as potential successor.
             if (less(comparable, node->entry)) {
-                succ = node;
+                successor = node;
                 node = node->left;
             }
 
@@ -124,11 +124,11 @@ class avl_node_gt {
             // If a node with the desired value is found, the successor is the
             // minimum value node in its right subtree (if any).
             else {
-                succ = node;
-                node = nullptr;
+                successor = node;
+                node = node->left;
             }
         }
-        return succ;
+        return successor;
     }
 
     /**
@@ -143,13 +143,13 @@ class avl_node_gt {
      */
     template <typename comparable_at>
     static node_t* upper_bound(node_t* node, comparable_at&& comparable) noexcept {
-        node_t* succ = nullptr;
-        auto less = comparator_t {};
+        node_t* successor = nullptr;
+        comparator_t less;
         while (node) {
             // If the given key is less than the root node, visit the left
             // subtree, taking current node as potential successor.
             if (less(comparable, node->entry)) {
-                succ = node;
+                successor = node;
                 node = node->left;
             }
 
@@ -163,11 +163,11 @@ class avl_node_gt {
             // minimum value node in its right subtree (if any).
             else {
                 if (node->right)
-                    succ = find_min(node->right);
-                break;
+                    successor = find_min(node->right);
+                node = nullptr;
             }
         }
-        return succ;
+        return successor;
     }
 
     /**
@@ -468,8 +468,10 @@ class avl_node_gt {
             midpoint = downstream.extracted.release();
             midpoint->left = node->left;
             midpoint->right = downstream.root;
+            midpoint->height = 1 + std::max(get_height(midpoint->left), get_height(midpoint->right));
             // Detach the `node` from the descendants.
             node->left = node->right = nullptr;
+            node->height = 1;
             return {midpoint, std::unique_ptr<node_t> {node}};
         }
         // Just one child is present, so it is the natural successor.
@@ -477,12 +479,14 @@ class avl_node_gt {
             node_t* replacement = node->left ? node->left : node->right;
             // Detach the `node` from the descendants.
             node->left = node->right = nullptr;
+            node->height = 1;
             return {replacement, std::unique_ptr<node_t> {node}};
         }
         // No children are present.
         else {
             // Detach the `node` from the descendants.
             node->left = node->right = nullptr;
+            node->height = 1;
             return {nullptr, std::unique_ptr<node_t> {node}};
         }
     }
@@ -559,10 +563,18 @@ class avl_tree_gt {
 
     ~avl_tree_gt() { clear(); }
     std::size_t size() const noexcept { return size_; }
+    std::size_t height() noexcept { return root_ ? root_->height : 0; }
     node_t* root() const noexcept { return root_; }
     node_t* end() const noexcept { return nullptr; }
     node_allocator_t& allocator() noexcept { return allocator_; }
     node_allocator_t const& allocator() const noexcept { return allocator_; }
+
+    std::size_t total_imbalance() const noexcept {
+        std::size_t abs_sum = 0;
+        node_t::for_each_top_down(root_,
+                                  [&](node_t* node) noexcept { abs_sum += std::abs(node_t::get_balance(node)); });
+        return abs_sum;
+    }
 
     template <typename comparable_at>
     node_t* find(comparable_at&& comparable) noexcept {
@@ -1077,7 +1089,9 @@ class consistent_avl_gt {
 
             // Remove older revisions
             identifier_t id {entry.element};
-            erase_range(id, dated_identifier_t {id, generation});
+            auto status = erase_range(id, dated_identifier_t {id, generation});
+            if (!status)
+                return status;
 
             // Update state for next loop cycle
             last_node = prev_node;

@@ -67,6 +67,15 @@ class avl_node_gt {
         callback(node);
     }
 
+    template <typename callback_at>
+    static void for_each_left_right(node_t* node, callback_at&& callback) noexcept {
+        if (!node)
+            return;
+        for_each_left_right(node->left, callback);
+        callback(node);
+        for_each_left_right(node->right, callback);
+    }
+
     static node_t* find_min(node_t* node) noexcept {
         while (node->left)
             node = node->left;
@@ -1235,6 +1244,17 @@ class consistent_avl_gt {
         entries_.clear();
         generation_ = 0;
         return {success_k};
+    }
+
+    template <typename dont_instantiate_me_at>
+    void print(dont_instantiate_me_at& cout) {
+        cout << "Items: " << entries_.size() << std::endl;
+        cout << "Imbalance: " << entries_.total_imbalance() << std::endl;
+        entry_node_t::for_each_left_right(entries_.root(), [&](entry_node_t* node) {
+            char const* marker = node->entry.visible ? "✓" : "✗";
+            cout << identifier_t {node->entry.element} << " @" << node->entry.generation << marker << " ";
+        });
+        cout << std::endl;
     }
 };
 

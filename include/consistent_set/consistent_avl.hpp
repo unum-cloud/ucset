@@ -979,19 +979,20 @@ class consistent_avl_gt {
 
     void unmask_and_compact(identifier_t const& id, generation_t generation_to_unmask) noexcept {
         // This is similar to the public `erase_range()`, but adds generation-matching conditions.
-        auto last = entries_.lower_bound(id);
+        auto current = entries_.lower_bound(id);
         auto less = entry_comparator_t {};
-        auto last_visible_entry = std::optional<identifier_t> {};
-        while (last && less.same(id, last->entry)) {
-            auto next = entries_.upper_bound(last->entry);
-            last->entry.visible |= last->entry.generation == generation_to_unmask;
-            if (!last->entry.visible)
+        auto last_visible_entry = std::optional<dated_identifier_t> {};
+        while (current && less.same(id, current->entry.element)) {
+            auto next = entries_.upper_bound(current->entry);
+            current->entry.visible |= current->entry.generation == generation_to_unmask;
+            if (!current->entry.visible)
                 continue;
 
             // Older revisions must die
             if (last_visible_entry)
                 entries_.extract(*last_visible_entry);
-            last = next;
+            last_visible_entry = dated_identifier_t {id, current->entry.generation};
+            current = next;
         }
     }
 

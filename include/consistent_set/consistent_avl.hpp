@@ -684,6 +684,8 @@ class avl_tree_gt {
             root_ = result.root;
             size_ += result.inserted;
         });
+        other.root_ = nullptr;
+        other.size_ = 0;
     }
 
     void merge(extract_result_t other) noexcept {

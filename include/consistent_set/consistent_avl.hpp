@@ -387,14 +387,14 @@ class avl_node_gt {
             auto downstream = find_or_make(node->left, comparable, std::forward<node_allocator_at>(node_allocator));
             node->left = downstream.root;
             if (downstream.inserted)
-                node = rebalance_after_insert(node, downstream.match->entry);
+                node = rebalance_after_insert(node, comparable);
             return {node, downstream.match, downstream.inserted};
         }
         else if (less(node->entry, comparable)) {
             auto downstream = find_or_make(node->right, comparable, std::forward<node_allocator_at>(node_allocator));
             node->right = downstream.root;
             if (downstream.inserted)
-                node = rebalance_after_insert(node, downstream.match->entry);
+                node = rebalance_after_insert(node, comparable);
             return {node, downstream.match, downstream.inserted};
         }
         else {

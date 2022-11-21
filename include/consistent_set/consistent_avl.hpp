@@ -1011,8 +1011,10 @@ class consistent_avl_gt {
         while (current && less.same(id, current->entry.element)) {
             auto next = entries_.upper_bound(current->entry);
             current->entry.visible |= current->entry.generation == generation_to_unmask;
-            if (!current->entry.visible)
+            if (!current->entry.visible) {
+                current = next;
                 continue;
+            }
 
             // Older revisions must die
             if (last_visible_entry)

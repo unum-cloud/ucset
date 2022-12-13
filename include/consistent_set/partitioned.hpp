@@ -229,7 +229,11 @@ class partitioned_gt {
         transaction_t(transaction_t&&) noexcept = default;
         transaction_t& operator=(transaction_t&&) noexcept = default;
 
-        [[nodiscard]] status_t watch(identifier_t const& id) noexcept { return parts_[bucket(id)].watch(id); }
+        [[nodiscard]] status_t watch(identifier_t const& id) noexcept {
+            std::size_t part_idx = bucket(id);
+            shared_lock_t _ {store_.mutexes_[part_idx]};
+            return parts_[part_idx].watch(id);
+        }
         [[nodiscard]] status_t upsert(element_t&& element) noexcept {
             return parts_[bucket(identifier_t(element))].upsert(std::move(element));
         }

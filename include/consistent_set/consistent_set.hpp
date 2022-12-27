@@ -472,9 +472,10 @@ class consistent_set_gt {
     [[nodiscard]] status_t upsert(element_t&& element) noexcept {
         generation_t generation = new_generation();
         return invoke_safely([&] {
+            bool exists = element;
             auto entry = entry_t {std::move(element)};
             entry.generation = generation;
-            entry.deleted = false;
+            entry.deleted = !exists;
             entry.visible = true;
             auto range_end = entries_.insert(std::move(entry)).first;
             auto range_start = entries_.lower_bound(range_end->element);
@@ -501,9 +502,11 @@ class consistent_set_gt {
         auto batch_construction_status = invoke_safely([&] {
             batch = entry_set_t {};
             for (; begin != end; ++begin) {
+                bool exists = *begin;
                 auto iterator = batch->emplace(*begin).first;
                 iterator->generation = generation;
                 iterator->visible = true;
+                iterator->deleted = !exists;
             }
         });
         if (!batch_construction_status)

@@ -1,4 +1,6 @@
-# If only [`std::set`][stl-set] was a [DBMS][dbms]
+# Unexceptional Consistent Set
+
+> If only [`std::set`][stl-set] was a [DBMS][dbms]
 
 This library provides you with a few containers:
 
@@ -27,7 +29,7 @@ To use this with any packaging/build tool you only need C++17 support.
 include(FetchContent)
 FetchContent_Declare(
     consistent_set
-    GIT_REPOSITORY https://github.com/ashvardanian/consistent_set
+    GIT_REPOSITORY https://github.com/unum-cloud/ucset
     GIT_TAG main
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ""

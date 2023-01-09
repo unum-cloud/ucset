@@ -4,7 +4,7 @@
 #include <functional>   // `std::hash`
 #include <shared_mutex> // `std::shared_mutex`
 
-namespace av::helpers {
+namespace unum::ucset {
 
 template <typename at, std::size_t count_ak, std::size_t... sequence_ak>
 constexpr std::array<at, count_ak> move_to_array_impl(at (&a)[count_ak], std::index_sequence<sequence_ak...>) noexcept {
@@ -46,10 +46,6 @@ static std::optional<std::array<at, count_ak>> generate_array_safely(generator_a
 
     return helpers::move_to_array<element_t, count_k>((raw_array_t&)raw_parts_mem);
 }
-
-} // namespace av::helpers
-
-namespace av {
 
 /**
  * @brief Hashes inputs to route them into separate sets, which can
@@ -464,4 +460,4 @@ class partitioned_gt {
     }
 };
 
-} // namespace av
+} // namespace unum::ucset

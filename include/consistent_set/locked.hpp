@@ -1,7 +1,7 @@
 #pragma once
 #include <shared_mutex> // `std::shared_mutex`
 
-namespace av {
+namespace unum::ucset {
 
 /**
  * @brief Wraps and protects any "Consistent Set" under a shared mutex.
@@ -227,4 +227,4 @@ class locked_gt {
     }
 };
 
-} // namespace av
+} // namespace unum::ucset

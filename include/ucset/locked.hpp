@@ -21,7 +21,6 @@ class locked_gt {
     using comparator_t = typename unlocked_t::comparator_t;
     using identifier_t = typename unlocked_t::identifier_t;
     using generation_t = typename unlocked_t::generation_t;
-    using status_t = typename unlocked_t::status_t;
 
     class transaction_t {
         friend locked_gt;

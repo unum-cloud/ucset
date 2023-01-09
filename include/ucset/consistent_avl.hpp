@@ -756,7 +756,6 @@ class consistent_avl_gt {
     using versioning_t = element_versioning_gt<element_t, comparator_t>;
     using identifier_t = typename versioning_t::identifier_t;
     using generation_t = typename versioning_t::generation_t;
-    using status_t = typename versioning_t::status_t;
     using dated_identifier_t = typename versioning_t::dated_identifier_t;
     using watch_t = typename versioning_t::watch_t;
     using watched_identifier_t = typename versioning_t::watched_identifier_t;

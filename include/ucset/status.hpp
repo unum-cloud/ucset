@@ -68,7 +68,6 @@ struct element_versioning_gt {
 
     using identifier_t = typename comparator_t::value_type;
     using generation_t = std::int64_t;
-    using status_t = status_t;
 
     static_assert(!std::is_reference<element_t>(), "Only value types are supported.");
     static_assert(std::is_nothrow_copy_constructible<identifier_t>(), "To WATCH, the ID must be safe to copy.");

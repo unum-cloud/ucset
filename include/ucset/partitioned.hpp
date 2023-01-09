@@ -44,7 +44,7 @@ static std::optional<std::array<at, count_ak>> generate_array_safely(generator_a
         }
     }
 
-    return helpers::move_to_array<element_t, count_k>((raw_array_t&)raw_parts_mem);
+    return move_to_array<element_t, count_k>((raw_array_t&)raw_parts_mem);
 }
 
 /**
@@ -77,7 +77,6 @@ class partitioned_gt {
     using comparator_t = typename part_t::comparator_t;
     using identifier_t = typename part_t::identifier_t;
     using generation_t = typename part_t::generation_t;
-    using status_t = typename part_t::status_t;
 
   private:
     static std::size_t bucket(identifier_t const& id) noexcept { return hash_t {}(id) % parts_k; }
@@ -301,7 +300,7 @@ class partitioned_gt {
     }
 
     static std::optional<parts_t> new_parts() noexcept {
-        return helpers::generate_array_safely<part_t, parts_k>([](std::size_t) { return part_t::make(); });
+        return generate_array_safely<part_t, parts_k>([](std::size_t) { return part_t::make(); });
     }
 
     generation_t new_generation() noexcept { return ++generation_; }
@@ -327,7 +326,7 @@ class partitioned_gt {
     }
 
     [[nodiscard]] std::optional<transaction_t> transaction() noexcept {
-        auto maybe = helpers::generate_array_safely<part_transaction_t, parts_k>(
+        auto maybe = generate_array_safely<part_transaction_t, parts_k>(
             [&](std::size_t part_idx) { return parts_[part_idx].transaction(); });
         if (!maybe)
             return {};

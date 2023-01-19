@@ -1,3 +1,4 @@
+#include <iostream>
 #include <cstdlib>
 #include <ctime>
 
@@ -118,6 +119,42 @@ TEST(upsert_and_find_set, iterators) {
 
     for (std::size_t idx = 0; idx < size; ++idx)
         EXPECT_TRUE(set.find(idx, [](auto const&) noexcept {}));
+}
+
+TEST(test_set, range) {
+    auto set = *stl_t::make();
+
+    for (std::size_t idx = 0; idx < size; ++idx)
+        set.upsert(pair_t {idx, idx});
+
+    for (size_t idx = 0; idx < size; idx += 10) {
+        size_t val = idx;
+        EXPECT_TRUE(set.range(idx, idx + 10, [&](auto const& rhs) noexcept {
+            EXPECT_EQ(val, rhs.key);
+            ++val;
+        }));
+    }
+}
+
+TEST(test_avl, range) {
+    auto avl = *avl_t::make();
+    auto set = *stl_t::make();
+
+    for (std::size_t idx = 0; idx < size; ++idx)
+        avl.upsert(pair_t {idx, idx});
+
+    bool state = false;
+    for (size_t idx = 0; idx < size; idx += 10) {
+        EXPECT_TRUE(avl.range(idx, idx + 9, [&](auto const& rhs) noexcept {
+            EXPECT_TRUE(set.upsert(pair_t{rhs.key,rhs.value}));
+        }));
+        for(size_t i = idx; i < idx + 10; ++i){
+            set.find(i,[&](auto const&) noexcept { state = true; });
+            EXPECT_TRUE(state);
+            state = false;
+        }
+        set.clear();
+    }
 }
 
 TEST(test_set, erase) {

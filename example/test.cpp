@@ -3,6 +3,7 @@
 #include <ctime>
 
 #include <ucset/consistent_set.hpp>
+#include <ucset/consistent_avl.hpp>
 #include <gtest/gtest.h>
 
 using namespace unum::ucset;
@@ -24,11 +25,13 @@ struct pair_compare_t {
     bool operator()(std::size_t a, pair_t b) const noexcept { return a < b.key; }
     bool operator()(pair_t a, std::size_t b) const noexcept { return a.key < b; }
 };
-using cont_t = consistent_set_gt<pair_t, pair_compare_t>;
-using identifier_t = typename cont_t::identifier_t;
+using stl_t = consistent_set_gt<pair_t, pair_compare_t>;
+using avl_t = consistent_avl_gt<pair_t, pair_compare_t>;
+using id_stl_t = typename stl_t::identifier_t;
+using id_avl_t = typename avl_t::identifier_t;
 
 TEST(upsert_and_find_set, ascending){
-    auto set = *cont_t::make();
+    auto set = *stl_t::make();
 
     for(std::size_t idx = 0; idx < size; ++idx) {
         set.upsert(pair_t{idx, idx});
@@ -38,7 +41,7 @@ TEST(upsert_and_find_set, ascending){
 }
 
 TEST(upsert_and_find_set, descending){
-    auto set = *cont_t::make();
+    auto set = *stl_t::make();
 
     for(std::size_t idx = size; idx > 0; --idx) {
         set.upsert(pair_t{idx, idx});
@@ -49,7 +52,7 @@ TEST(upsert_and_find_set, descending){
 
 TEST(upsert_and_find_set, random){
     std::srand(std::time(nullptr));
-    auto set = *cont_t::make();
+    auto set = *stl_t::make();
 
     for(std::size_t idx = 0; idx < size; ++idx) {
         std::size_t val = std::rand();
@@ -58,8 +61,39 @@ TEST(upsert_and_find_set, random){
     }
 }
 
+TEST(upsert_and_find_avl, ascending){
+    auto avl = *avl_t::make();
+
+    for(std::size_t idx = 0; idx < size; ++idx) {
+        avl.upsert(pair_t{idx, idx});
+        EXPECT_TRUE(avl.find(idx, [](pair_t const&) noexcept {}));
+    }
+    EXPECT_EQ(avl.size(), size);
+}
+
+TEST(upsert_and_find_avl, descending){
+    auto avl = *avl_t::make();
+
+    for(std::size_t idx = size; idx > 0; --idx) {
+        avl.upsert(pair_t{idx, idx});
+        EXPECT_TRUE(avl.find(idx, [](pair_t const&) noexcept {}));
+    }
+    EXPECT_EQ(avl.size(), size);
+}
+
+TEST(upsert_and_find_avl, random){
+    std::srand(std::time(nullptr));
+    auto avl = *avl_t::make();
+
+    for(std::size_t idx = 0; idx < size; ++idx) {
+        std::size_t val = std::rand();
+        avl.upsert(pair_t{val, val});
+        EXPECT_TRUE(avl.find(val, [](pair_t const&) noexcept {}));
+    }
+}
+
 // TEST(test_set, erase){
-//     auto set = *cont_t::make();
+//     auto set = *stl_t::make();
 
 //     for(std::size_t idx = 0; idx < size; ++idx)
 //         set.upsert(pair_t{idx, idx});
@@ -72,7 +106,7 @@ TEST(upsert_and_find_set, random){
 // }
 
 TEST(test_set, reserve_clear){
-    auto set = *cont_t::make();
+    auto set = *stl_t::make();
     EXPECT_TRUE(set.reserve(size));
     EXPECT_EQ(set.size(),0);
 
@@ -82,6 +116,18 @@ TEST(test_set, reserve_clear){
     EXPECT_EQ(set.size(),size);
     EXPECT_TRUE(set.clear());
     EXPECT_EQ(set.size(),0);
+}
+
+TEST(test_avl, clear){
+    auto avl = *avl_t::make();
+    EXPECT_EQ(avl.size(),0);
+
+    for(std::size_t idx = 0; idx < size; ++idx)
+        avl.upsert(pair_t{idx, idx});
+
+    EXPECT_EQ(avl.size(),size);
+    EXPECT_TRUE(avl.clear());
+    EXPECT_EQ(avl.size(),0);
 }
 
 int main(int argc, char** argv){

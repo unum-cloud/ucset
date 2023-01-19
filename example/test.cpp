@@ -24,6 +24,7 @@ struct pair_compare_t {
     bool operator()(std::size_t a, pair_t b) const noexcept { return a < b.key; }
     bool operator()(pair_t a, std::size_t b) const noexcept { return a.key < b; }
 };
+
 using stl_t = consistent_set_gt<pair_t, pair_compare_t>;
 using avl_t = consistent_avl_gt<pair_t, pair_compare_t>;
 using id_stl_t = typename stl_t::identifier_t;
@@ -34,7 +35,7 @@ TEST(upsert_and_find_set, ascending){
 
     for (std::size_t idx = 0; idx < size; ++idx) {
         EXPECT_TRUE(set.upsert(pair_t{idx, idx}));
-        EXPECT_TRUE(set.find(idx, [](pair_t const&) noexcept {}));
+        EXPECT_TRUE(set.find(idx, [](auto const&) noexcept {}));
     }
     EXPECT_EQ(set.size(), size);
 }
@@ -44,7 +45,7 @@ TEST(upsert_and_find_set, descending){
 
     for (std::size_t idx = size; idx > 0; --idx) {
         EXPECT_TRUE(set.upsert(pair_t{idx, idx}));
-        EXPECT_TRUE(set.find(idx, [](pair_t const&) noexcept {}));
+        EXPECT_TRUE(set.find(idx, [](auto const&) noexcept {}));
     }
     EXPECT_EQ(set.size(), size);
 }
@@ -56,7 +57,7 @@ TEST(upsert_and_find_set, random){
     for (std::size_t idx = 0; idx < size; ++idx) {
         std::size_t val = std::rand();
         EXPECT_TRUE(set.upsert(pair_t{val, val}));
-        EXPECT_TRUE(set.find(val, [](pair_t const&) noexcept {}));
+        EXPECT_TRUE(set.find(val, [](auto const&) noexcept {}));
     }
 }
 
@@ -65,7 +66,7 @@ TEST(upsert_and_find_avl, ascending){
 
     for (std::size_t idx = 0; idx < size; ++idx) {
         EXPECT_TRUE(avl.upsert(pair_t{idx, idx}));
-        EXPECT_TRUE(avl.find(idx, [](pair_t const&) noexcept {}));
+        EXPECT_TRUE(avl.find(idx, [](auto const&) noexcept {}));
     }
     EXPECT_EQ(avl.size(), size);
 }
@@ -75,7 +76,7 @@ TEST(upsert_and_find_avl, descending){
 
     for (std::size_t idx = size; idx > 0; --idx) {
         EXPECT_TRUE(avl.upsert(pair_t{idx, idx}));
-        EXPECT_TRUE(avl.find(idx, [](pair_t const&) noexcept {}));
+        EXPECT_TRUE(avl.find(idx, [](auto const&) noexcept {}));
     }
     EXPECT_EQ(avl.size(), size);
 }
@@ -87,7 +88,7 @@ TEST(upsert_and_find_avl, random){
     for (std::size_t idx = 0; idx < size; ++idx) {
         std::size_t val = std::rand();
         EXPECT_TRUE(avl.upsert(pair_t{val, val}));
-        EXPECT_TRUE(avl.find(val, [](pair_t const&) noexcept {}));
+        EXPECT_TRUE(avl.find(val, [](auto const&) noexcept {}));
     }
 }
 
@@ -102,7 +103,7 @@ TEST(upsert_and_find_avl, iterators){
     EXPECT_EQ(avl.size(), size);
 
     for (std::size_t idx = 0; idx < size; ++idx) 
-        EXPECT_TRUE(avl.find(idx, [](pair_t const&) noexcept {}));
+        EXPECT_TRUE(avl.find(idx, [](auto const&) noexcept {}));
 }
 
 TEST(test_set, erase){
@@ -134,6 +135,32 @@ TEST(test_avl, erase){
             avl.find(i, [&](auto const&) noexcept {state = false;});
             EXPECT_TRUE(state);
         }
+    }
+}
+
+TEST(test_avl, upper_bound){
+    auto avl = *avl_t::make();
+
+    for (std::size_t idx = 0; idx < size; ++idx)
+        avl.upsert(pair_t{idx, idx});
+
+    for (size_t idx = 0; idx < size - 1; ++idx) {
+        EXPECT_TRUE(avl.upper_bound(idx, [&](auto const& rhs) noexcept {
+            EXPECT_TRUE(pair_compare_t{}(idx, rhs));
+            }));
+    }
+}
+
+TEST(test_set, upper_bound){
+    auto set = *stl_t::make();
+
+    for (std::size_t idx = 0; idx < size; ++idx)
+        set.upsert(pair_t{idx, idx});
+
+    for (size_t idx = 0; idx < size - 1; ++idx) {
+        EXPECT_TRUE(set.upper_bound(idx, [&](auto const& rhs) noexcept {
+            EXPECT_TRUE(pair_compare_t{}(idx, rhs));
+            }));
     }
 }
 

@@ -1,4 +1,3 @@
-#include <iostream>
 #include <cstdlib>
 #include <ctime>
 
@@ -34,7 +33,7 @@ TEST(upsert_and_find_set, ascending){
     auto set = *stl_t::make();
 
     for(std::size_t idx = 0; idx < size; ++idx) {
-        set.upsert(pair_t{idx, idx});
+        EXPECT_TRUE(set.upsert(pair_t{idx, idx}));
         EXPECT_TRUE(set.find(idx, [](pair_t const&) noexcept {}));
     }
     EXPECT_EQ(set.size(), size);
@@ -44,7 +43,7 @@ TEST(upsert_and_find_set, descending){
     auto set = *stl_t::make();
 
     for(std::size_t idx = size; idx > 0; --idx) {
-        set.upsert(pair_t{idx, idx});
+        EXPECT_TRUE(set.upsert(pair_t{idx, idx}));
         EXPECT_TRUE(set.find(idx, [](pair_t const&) noexcept {}));
     }
     EXPECT_EQ(set.size(), size);
@@ -56,7 +55,7 @@ TEST(upsert_and_find_set, random){
 
     for(std::size_t idx = 0; idx < size; ++idx) {
         std::size_t val = std::rand();
-        set.upsert(pair_t{val, val});
+        EXPECT_TRUE(set.upsert(pair_t{val, val}));
         EXPECT_TRUE(set.find(val, [](pair_t const&) noexcept {}));
     }
 }
@@ -65,7 +64,7 @@ TEST(upsert_and_find_avl, ascending){
     auto avl = *avl_t::make();
 
     for(std::size_t idx = 0; idx < size; ++idx) {
-        avl.upsert(pair_t{idx, idx});
+        EXPECT_TRUE(avl.upsert(pair_t{idx, idx}));
         EXPECT_TRUE(avl.find(idx, [](pair_t const&) noexcept {}));
     }
     EXPECT_EQ(avl.size(), size);
@@ -75,7 +74,7 @@ TEST(upsert_and_find_avl, descending){
     auto avl = *avl_t::make();
 
     for(std::size_t idx = size; idx > 0; --idx) {
-        avl.upsert(pair_t{idx, idx});
+        EXPECT_TRUE(avl.upsert(pair_t{idx, idx}));
         EXPECT_TRUE(avl.find(idx, [](pair_t const&) noexcept {}));
     }
     EXPECT_EQ(avl.size(), size);
@@ -87,9 +86,23 @@ TEST(upsert_and_find_avl, random){
 
     for(std::size_t idx = 0; idx < size; ++idx) {
         std::size_t val = std::rand();
-        avl.upsert(pair_t{val, val});
+        EXPECT_TRUE(avl.upsert(pair_t{val, val}));
         EXPECT_TRUE(avl.find(val, [](pair_t const&) noexcept {}));
     }
+}
+
+TEST(upsert_and_find_avl, iterators){
+    std::vector<pair_t> vec(size);
+    auto avl = *avl_t::make();
+
+    for(std::size_t idx = 0; idx < size; ++idx) 
+        vec[idx] = pair_t{idx, idx};
+    
+    EXPECT_TRUE(avl.upsert(vec.begin(),vec.end()));
+    EXPECT_EQ(avl.size(), size);
+
+    for(std::size_t idx = 0; idx < size; ++idx) 
+        EXPECT_TRUE(avl.find(idx, [](pair_t const&) noexcept {}));
 }
 
 // TEST(test_set, erase){
@@ -99,9 +112,20 @@ TEST(upsert_and_find_avl, random){
 //         set.upsert(pair_t{idx, idx});
 
 //     for(size_t idx = 0; idx < size; ++idx) {
-//         std::cout << idx << "  ";
 //         EXPECT_TRUE(set.erase_range(idx, idx + 1, [](pair_t const&) noexcept {}));
 //         EXPECT_FALSE(set.find(idx, [](pair_t const&) noexcept {}));
+//     }
+// }
+
+// TEST(test_avl, erase){
+//     auto avl = *avl_t::make();
+
+//     for(std::size_t idx = 0; idx < size; ++idx)
+//         avl.upsert(pair_t{idx, idx});
+
+//     for(size_t idx = 0; idx < size; ++idx) {
+//         EXPECT_TRUE(avl.erase_range(idx, idx, [](pair_t const&) noexcept {}));
+//         EXPECT_FALSE(avl.find(idx, [](pair_t const&) noexcept {}));
 //     }
 // }
 

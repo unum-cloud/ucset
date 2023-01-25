@@ -32,14 +32,15 @@ using avl_t = consistent_avl_gt<pair_t, pair_compare_t>;
 using id_stl_t = typename stl_t::identifier_t;
 using id_avl_t = typename avl_t::identifier_t;
 
+template<typename cont_t>
 void test_with_threads(std::size_t threads_count) {
-    auto set = *stl_t::make();
+    auto cont = *cont_t::make();
     std::vector<std::thread> threads;
     threads.reserve(threads_count);
 
     auto upsert = [&](std::size_t offset, std::size_t length){
         for(std::size_t idx = offset; idx < length; ++idx)
-            set.upsert(pair_t {idx,idx});
+            cont.upsert(pair_t {idx,idx});
     };
 
     std::size_t shift = (size / threads_count);
@@ -48,16 +49,20 @@ void test_with_threads(std::size_t threads_count) {
         threads[idx].join();
     }
 
-    EXPECT_EQ(set.size(), size);
+    EXPECT_EQ(cont.size(), size);
     for (std::size_t idx = 0; idx < size; ++idx) 
-        EXPECT_TRUE(set.find(idx, [](auto const&) noexcept {}));
+        EXPECT_TRUE(cont.find(idx, [](auto const&) noexcept {}));
 }
 
 TEST(upsert_and_find_set, with_threads) {
-    test_with_threads(2);
-    test_with_threads(4);
-    test_with_threads(8);
-    test_with_threads(16);
+    test_with_threads<stl_t>(2);
+    test_with_threads<stl_t>(4);
+    test_with_threads<stl_t>(8);
+    test_with_threads<stl_t>(16);
+    test_with_threads<avl_t>(2);
+    test_with_threads<avl_t>(4);
+    test_with_threads<avl_t>(8);
+    test_with_threads<avl_t>(16);
 }
 
 TEST(upsert_and_find_set, ascending) {

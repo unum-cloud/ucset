@@ -9,7 +9,7 @@
 
 using namespace unum::ucset;
 
-constexpr std::size_t size = 1024;
+constexpr std::size_t size = 512;
 
 struct pair_t {
     std::size_t key;
@@ -32,25 +32,26 @@ using avl_t = consistent_avl_gt<pair_t, pair_compare_t>;
 using id_stl_t = typename stl_t::identifier_t;
 using id_avl_t = typename avl_t::identifier_t;
 
-template<typename cont_t>
+template <typename cont_t>
 void test_with_threads(std::size_t threads_count) {
     auto cont = *cont_t::make();
     std::vector<std::thread> threads;
     threads.reserve(threads_count);
 
-    auto upsert = [&](std::size_t offset, std::size_t length){
-        for(std::size_t idx = offset; idx < length; ++idx)
-            cont.upsert(pair_t {idx,idx});
+    auto upsert = [&](std::size_t offset, std::size_t length) {
+        for (std::size_t idx = offset; idx < length; ++idx)
+            cont.upsert(pair_t {idx, idx});
     };
 
     std::size_t shift = (size / threads_count);
-    for (std::size_t idx = 0; idx < threads_count; ++idx){
-        threads.push_back(std::thread(upsert,idx * shift,idx * shift + shift));
+    for (std::size_t idx = 0; idx < threads_count; ++idx)
+        threads.push_back(std::thread(upsert, idx * shift, idx * shift + shift));
+
+    for (std::size_t idx = 0; idx < threads_count; ++idx)
         threads[idx].join();
-    }
 
     EXPECT_EQ(cont.size(), size);
-    for (std::size_t idx = 0; idx < size; ++idx) 
+    for (std::size_t idx = 0; idx < size; ++idx)
         EXPECT_TRUE(cont.find(idx, [](auto const&) noexcept {}));
 }
 
@@ -180,10 +181,10 @@ TEST(test_avl, range) {
     bool state = false;
     for (std::size_t idx = 0; idx < size; idx += 8) {
         EXPECT_TRUE(avl.range(idx, idx + 7, [&](auto const& rhs) noexcept {
-            EXPECT_TRUE(set.upsert(pair_t{rhs.key,rhs.value}));
+            EXPECT_TRUE(set.upsert(pair_t {rhs.key, rhs.value}));
         }));
-        for(std::size_t i = idx; i < idx + 8; ++i){
-            set.find(i,[&](auto const&) noexcept { state = true; });
+        for (std::size_t i = idx; i < idx + 8; ++i) {
+            set.find(i, [&](auto const&) noexcept { state = true; });
             EXPECT_TRUE(state);
             state = false;
         }

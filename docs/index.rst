@@ -1,0 +1,22 @@
+.. UCSet documentation navigation file.
+==========
+Overview
+==========
+.. mdinclude:: ../README.md
+
+.. toctree:: 
+   :hidden:
+
+   self
+
+.. toctree:: 
+   :hidden:
+   :caption: �
+
+   reference
+
+.. toctree:: 
+   :hidden:
+   :caption: �
+
+   genindex

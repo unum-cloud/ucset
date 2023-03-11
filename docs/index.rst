@@ -1,4 +1,3 @@
-.. UCSet documentation navigation file.
 ==========
 Overview
 ==========

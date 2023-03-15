@@ -5,6 +5,7 @@
 
 #include <ucset/consistent_set.hpp>
 #include <ucset/consistent_avl.hpp>
+#include <ucset/locked.hpp>
 #include <ucset/partitioned.hpp>
 #include <gtest/gtest.h>
 
@@ -272,19 +273,13 @@ TEST(test_avl, clear) {
     EXPECT_EQ(avl.size(), 0);
 }
 
-template <std::size_t threads_count_ak, std::size_t upsert_count_ak>
-void test_partitioned_set_transaction_concurrent_upsert() {
+template <typename cont_at, std::size_t threads_count_ak, std::size_t upsert_count_ak>
+void test_transaction_concurrent_upsert() {
 
-    using ucset_t = partitioned_gt< //
-        consistent_set_gt<pair_t, pair_compare_t>,
-        std::hash<std::size_t>,
-        std::shared_mutex,
-        64>;
-    ucset_t set = *ucset_t::make();
-
+    auto cont = *cont_at::make();
     auto task = [&](std::size_t thread_idx) {
         while (true) {
-            auto txn = set.transaction().value();
+            auto txn = cont.transaction().value();
             EXPECT_TRUE(txn.reset());
             for (std::size_t i = 0; i != upsert_count_ak; ++i)
                 EXPECT_TRUE(txn.upsert(pair_t(i, thread_idx)));
@@ -308,17 +303,39 @@ void test_partitioned_set_transaction_concurrent_upsert() {
         values.push_back(value);
     };
     for (std::uint64_t idx = 0; idx < upsert_count_ak; ++idx)
-        EXPECT_TRUE(set.find(idx, callback_found));
+        EXPECT_TRUE(cont.find(idx, callback_found));
 
     EXPECT_EQ(values.size(), upsert_count_ak);
     for (std::uint64_t idx = 1; idx < upsert_count_ak; ++idx)
         EXPECT_EQ(values[0].value, values[idx].value);
 };
 
+TEST(locked_set, transaction_concurrent_upsert) {
+    using ucset_t = locked_gt<stl_t>;
+    test_transaction_concurrent_upsert<ucset_t, 4, 100>();
+    test_transaction_concurrent_upsert<ucset_t, 8, 100>();
+    test_transaction_concurrent_upsert<ucset_t, 16, 1000>();
+}
+
+TEST(locked_avl, transaction_concurrent_upsert) {
+    using ucset_t = locked_gt<avl_t>;
+    test_transaction_concurrent_upsert<ucset_t, 4, 100>();
+    test_transaction_concurrent_upsert<ucset_t, 8, 100>();
+    test_transaction_concurrent_upsert<ucset_t, 16, 1000>();
+}
+
 TEST(partitioned_set, transaction_concurrent_upsert) {
-    test_partitioned_set_transaction_concurrent_upsert<4, 100>();
-    test_partitioned_set_transaction_concurrent_upsert<8, 1000>();
-    test_partitioned_set_transaction_concurrent_upsert<16, 1000>();
+    using ucset_t = partitioned_gt<stl_t>;
+    test_transaction_concurrent_upsert<ucset_t, 4, 100>();
+    test_transaction_concurrent_upsert<ucset_t, 8, 100>();
+    test_transaction_concurrent_upsert<ucset_t, 16, 1000>();
+}
+
+TEST(partitioned_avl, transaction_concurrent_upsert) {
+    using ucset_t = partitioned_gt<avl_t>;
+    test_transaction_concurrent_upsert<ucset_t, 4, 100>();
+    test_transaction_concurrent_upsert<ucset_t, 8, 100>();
+    test_transaction_concurrent_upsert<ucset_t, 16, 1000>();
 }
 
 int main(int argc, char** argv) {

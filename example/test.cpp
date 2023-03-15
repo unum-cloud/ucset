@@ -5,6 +5,7 @@
 
 #include <ucset/consistent_set.hpp>
 #include <ucset/consistent_avl.hpp>
+#include <ucset/partitioned.hpp>
 #include <gtest/gtest.h>
 
 using namespace unum::ucset;
@@ -218,8 +219,7 @@ TEST(test_avl, erase) {
     for (std::size_t idx = 0; idx < size; idx += 10) {
         EXPECT_TRUE(avl.erase_range(idx, idx + 10, [](auto const&) noexcept {}));
         for (std::size_t i = idx; i < idx + 10; ++i) {
-            EXPECT_TRUE(avl.find(i, [&](auto const&) noexcept {
-                state = false; }));
+            EXPECT_TRUE(avl.find(i, [&](auto const&) noexcept { state = false; }));
             EXPECT_TRUE(state);
         }
     }
@@ -270,6 +270,55 @@ TEST(test_avl, clear) {
     EXPECT_EQ(avl.size(), size);
     EXPECT_TRUE(avl.clear());
     EXPECT_EQ(avl.size(), 0);
+}
+
+template <std::size_t threads_count_ak, std::size_t upsert_count_ak>
+void test_partitioned_set_transaction_concurrent_upsert() {
+
+    using ucset_t = partitioned_gt< //
+        consistent_set_gt<pair_t, pair_compare_t>,
+        std::hash<std::size_t>,
+        std::shared_mutex,
+        64>;
+    ucset_t set = *ucset_t::make();
+
+    auto task = [&](std::size_t thread_idx) {
+        while (true) {
+            auto txn = set.transaction().value();
+            EXPECT_TRUE(txn.reset());
+            for (std::size_t i = 0; i != upsert_count_ak; ++i)
+                EXPECT_TRUE(txn.upsert(pair_t(i, thread_idx)));
+            auto status = txn.stage();
+            if (!status)
+                continue;
+            status = txn.commit();
+            if (status)
+                break;
+        }
+    };
+
+    std::array<std::thread, threads_count_ak> threads;
+    for (std::size_t i = 0; i < threads_count_ak; ++i)
+        threads[i] = std::thread(task, i);
+    for (std::size_t i = 0; i < threads_count_ak; ++i)
+        threads[i].join();
+
+    std::vector<pair_t> values;
+    auto callback_found = [&](pair_t value) noexcept {
+        values.push_back(value);
+    };
+    for (std::uint64_t idx = 0; idx < upsert_count_ak; ++idx)
+        EXPECT_TRUE(set.find(idx, callback_found));
+
+    EXPECT_EQ(values.size(), upsert_count_ak);
+    for (std::uint64_t idx = 1; idx < upsert_count_ak; ++idx)
+        EXPECT_EQ(values[0].value, values[idx].value);
+};
+
+TEST(partitioned_set, transaction_concurrent_upsert) {
+    test_partitioned_set_transaction_concurrent_upsert<4, 100>();
+    test_partitioned_set_transaction_concurrent_upsert<8, 1000>();
+    test_partitioned_set_transaction_concurrent_upsert<16, 1000>();
 }
 
 int main(int argc, char** argv) {

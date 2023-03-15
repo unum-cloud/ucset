@@ -338,6 +338,80 @@ TEST(partitioned_avl, transaction_concurrent_upsert) {
     test_transaction_concurrent_upsert<ucset_t, 16, 1000>();
 }
 
+template <typename cont_at>
+void test_transaction_conflict() {
+    auto cont = *cont_at::make();
+    status_t status1, status2;
+    auto txn1 = cont.transaction().value(), txn2 = cont.transaction().value();
+
+    for (std::size_t i = 0; i != 100; ++i)
+        EXPECT_TRUE(txn1.watch(i));
+    for (std::size_t i = 50; i != 150; ++i)
+        EXPECT_TRUE(txn2.watch(i));
+
+    auto task1 = [&]() {
+        for (std::size_t i = 0; i != 100; ++i)
+            EXPECT_TRUE(txn1.upsert(pair_t(i, 1)));
+        status1 = txn1.stage();
+        if (!status1)
+            return;
+        status1 = txn1.commit();
+    };
+
+    auto task2 = [&]() {
+        for (std::size_t i = 50; i != 150; ++i)
+            EXPECT_TRUE(txn2.upsert(pair_t(i, 2)));
+        status2 = txn2.stage();
+        if (!status2)
+            return;
+        status2 = txn2.commit();
+    };
+
+    auto thread1 = std::thread(task1), thread2 = std::thread(task2);
+    thread1.join();
+    thread2.join();
+
+    EXPECT_NE(status1, status2);
+    std::vector<pair_t> values;
+    auto callback_found = [&](pair_t value) noexcept {
+        values.push_back(value);
+    };
+    for (std::uint64_t idx = 0; idx < 150; ++idx)
+        EXPECT_TRUE(cont.find(idx, callback_found));
+
+    EXPECT_EQ(values.size(), 100);
+    for (std::uint64_t idx = 1; idx < 100; ++idx)
+        EXPECT_EQ(values[0].value, values[idx].value);
+};
+
+TEST(locked_set, transaction_conflict) {
+    using ucset_t = locked_gt<stl_t>;
+    test_transaction_conflict<ucset_t>();
+    test_transaction_conflict<ucset_t>();
+    test_transaction_conflict<ucset_t>();
+}
+
+TEST(locked_avl, transaction_conflict) {
+    using ucset_t = locked_gt<avl_t>;
+    test_transaction_conflict<ucset_t>();
+    test_transaction_conflict<ucset_t>();
+    test_transaction_conflict<ucset_t>();
+}
+
+TEST(partitioned_set, transaction_conflict) {
+    using ucset_t = partitioned_gt<stl_t>;
+    test_transaction_conflict<ucset_t>();
+    test_transaction_conflict<ucset_t>();
+    test_transaction_conflict<ucset_t>();
+}
+
+TEST(partitioned_avl, transaction_conflict) {
+    using ucset_t = partitioned_gt<avl_t>;
+    test_transaction_conflict<ucset_t>();
+    test_transaction_conflict<ucset_t>();
+    test_transaction_conflict<ucset_t>();
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

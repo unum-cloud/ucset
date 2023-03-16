@@ -5,6 +5,8 @@
 #include <shared_mutex> // `std::shared_mutex`
 #include <atomic>
 
+#include "ucset/consistent_set.hpp"
+
 namespace unum::ucset {
 
 template <typename at, std::size_t count_ak, std::size_t... sequence_ak>

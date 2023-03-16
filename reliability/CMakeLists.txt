@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.15)
 project(ucset)
 
 set(CMAKE_CXX_STANDARD 17)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/gtest.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/gbench.cmake")
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../include/)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/../")
 
@@ -14,4 +16,7 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wfatal-errors")
 endif()
 
-add_executable(example main.cpp)
+add_executable(test test.cpp)
+target_link_libraries(test gtest)
+add_executable(bench bench.cpp)
+target_link_libraries(bench benchmark)

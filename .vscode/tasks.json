@@ -2,8 +2,14 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build Debug Test",
-            "command": "cmake -DCMAKE_BUILD_TYPE=Debug -S ./example/ -B ./example/build && make -C ./example/build",
+            "label": "Build Debug",
+            "command": "cmake -DCMAKE_BUILD_TYPE=Debug -S ./reliability/ -B ./build_debug/make && make -C ./build_debug/make",
+            "args": [],
+            "type": "shell"
+        },
+        {
+            "label": "Build Release",
+            "command": "cmake -DCMAKE_BUILD_TYPE=Release -S ./reliability/ -B ./build_release/make && make -C ./build_release/make",
             "args": [],
             "type": "shell"
         }

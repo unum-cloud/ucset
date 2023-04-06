@@ -1,3 +1,8 @@
 .DS_Store
 !docs/Makefile
 build*
+example/main
+example/test
+example/lib
+example/bin
+_deps
